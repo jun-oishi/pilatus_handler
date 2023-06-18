@@ -77,6 +77,14 @@ class _Masks(np.ndarray):
         arr = np.ones_like(self)
         arr[top:bottom, left:right] = 0
         self.append(arr)
+        return
+
+    def add_circle(self, center: tuple, radius: float):
+        dx = np.ones_like(self) * np.arange(self.shape[1]) - center[1]
+        dy = np.ones_like(self) * np.arange(self.shape[0]).reshape(-1, 1) - center[0]
+        dist = np.sqrt(dx**2 + dy**2)
+        mask = dist > radius
+        self.append(mask)
 
     def undo(self):
         self.__pop(-1)
@@ -143,6 +151,7 @@ class Saxs2dProfile:
             self.__log()
         if showCenterAsNan:
             self.__draw_center()
+
         return self.__buf
 
     def center(self):
@@ -225,10 +234,7 @@ class Saxs2dProfile:
         self.__buf = cv2.applyColorMap(self.__buf, cmap)
         return
 
-    def add_rectangle_mask(self, top: int, bottom: int, left: int, right: int):
-        self.__masks.add_rectangle(top, bottom, left, right)
-
-    def auto_mask(self):
+    def auto_mask_invalid(self):
         self.__masks.append(self.__raw >= 0)  # nan=>0, otherwise=>1
 
     def detect_center(self):
@@ -257,3 +263,53 @@ class Saxs2dProfile:
             )
             _logger.info(f"circle detected: {circles.shape}")
             self.__center = circles[0, 0, 0], circles[0, 0, 1]
+
+        return
+
+    def auto_mask_outer(self):
+        if self.__center[0] is np.nan:
+            self.detect_center()
+            if self.__center[0] is np.nan:
+                raise ValueError("fail to detect center")
+        # TODO: implement
+        raise NotImplementedError("Please implement me")
+
+    def integrate(
+        self,
+        *,
+        dr: float = np.nan,
+        bins: np.ndarray = np.arange(0),
+        range: tuple[float, float] = (np.nan, np.nan),
+    ) -> tuple[np.ndarray, np.ndarray]:
+        buf = self.__raw.copy()
+
+        dx = np.ones_like(buf) * np.arange(buf.shape[1]) - self.__center[1]
+        dy = (
+            np.ones_like(buf) * np.arange(buf.shape[0]).reshape(-1, 1)
+            - self.__center[0]
+        )
+        dist = np.sqrt(dx**2 + dy**2)
+        buf = buf * 2 * np.pi * dist * self.__masks
+
+        if bins.size == 0:
+            if np.isnan(dr):
+                raise ValueError("dr or bins must be specified")
+            if range == (np.nan, np.nan):
+                range = (np.nanmin(dist), np.nanmax(dist))  # type: ignore
+
+            if (range[1] - range[0]) % dr > 1e-6:
+                bins = np.arange(range[0], range[1] + dr, dr)
+            else:
+                bins = np.arange(range[0], range[1], dr)
+
+        ret = np.zeros(bins.size - 1)
+        for i in np.arange(bins.size - 1):
+            bottom = bins[i]
+            top = bins[i + 1]
+            filter = (dist >= bottom) & (dist < top)
+            num = np.sum(filter)
+            sum = np.nansum(buf * filter)
+            avg = sum / num
+            ret[i] = avg
+
+        return ret, bins

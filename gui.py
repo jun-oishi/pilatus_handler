@@ -2,10 +2,11 @@ from Saxs2dProfile import Saxs2dProfile
 import PySimpleGUI as sg
 import util
 
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk  # type: ignore
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 import matplotlib as mpl
+import matplotlib.pyplot as plt
 import numpy as np
 
 logger = util.getLogger(__name__, util.DEBUG)
@@ -19,26 +20,50 @@ STATE_INIT = "init"
 STATE_WAIT_AUTO_MASK = "wait_auto_mask"
 STATE_WAIT_DETECT_CENTER = "wait_detect_center"
 STATE_WAIT_SELECT_CENTER = "wait_select_center"
-STATE_WAIT_1D_CONVERT = "wait_1d_convert"
+STATE_WAIT_INTEGRATE = "wait_integrate"
 
 
-class HeatmapFigCanvas(FigureCanvasTkAgg):
+class FlushableFigCanvas:
     def __init__(self, canvas: sg.tkinter.Canvas):
-        self.canvas = canvas
-        self.fig: Figure = Figure()
-        self.ax: Axes = self.fig.add_subplot(111)
-        self.cmap: mpl.colormap.Colormap = mpl.colormaps.get_cmap("hot").copy()  # type: ignore
-        self.cmap.set_bad("lime", alpha=1.0)
-        super().__init__(self.fig, canvas)
-        self.colorbar = None
-        self.draw()
-        self.get_tk_widget().pack(side="top", fill="both", expand=1)
+        self.__canvas = canvas
+        self.__canvas_packed = {}
+        self.__fig_agg: FigureCanvasTkAgg = None  # type: ignore
         return
 
-    def refresh_with(self, data: np.ndarray):
-        self.ax.clear()
-        im = self.ax.imshow(data, cmap=self.cmap)
-        self.draw()
+    def draw(self, figure: Figure):
+        if self.__fig_agg is not None:
+            self.__flush()
+        self.__fig_agg = FigureCanvasTkAgg(figure, self.__canvas)
+        self.__fig_agg.draw()
+        # toolbar = NavigationToolbar2Tk(self.__canvas, pack_toolbar=False)
+        # toolbar.update()
+        widget = self.__fig_agg.get_tk_widget()
+        if widget not in self.__canvas_packed:
+            self.__canvas_packed[widget] = True
+            widget.pack(side="top", fill="both", expand=1)
+
+    def __flush(self):
+        self.__fig_agg.get_tk_widget().forget()
+        try:
+            self.__canvas_packed.pop(self.__fig_agg.get_tk_widget())
+        except Exception as e:
+            logger.error(f"error removing {self.__fig_agg}: {e}")
+        plt.close("all")
+
+    def heatmap(self, data: np.ndarray):
+        fig = Figure()
+        ax = fig.add_subplot(111)
+        cmap: mpl.colormap.Colormap = mpl.colormaps.get_cmap("hot").copy()  # type: ignore
+        cmap.set_bad("lime", alpha=1.0)
+        im = ax.imshow(data, cmap=cmap)
+        fig.colorbar(im, ax=ax)
+        self.draw(fig)
+
+    def plot(self, x: np.ndarray, y: np.ndarray):
+        fig = Figure()
+        ax = fig.add_subplot(111)
+        ax.plot(x, y)
+        self.draw(fig)
 
 
 def main():
@@ -51,7 +76,10 @@ def main():
             ),
         ],
         [sg.Button("-", key="-BUTTON_ACTION-")],
-        [sg.Text("successfully initiated", key="-TEXT_STATUS-")],
+        [
+            sg.Text("status:", key="-TEXT_STATUS_HEADER-"),
+            sg.Text("successfully initiated", key="-TEXT_STATUS-"),
+        ],
         [sg.Canvas(size=CANVAS_SIZE, key="-CANVAS-")],
         [
             sg.Button("exit", key="-BUTTON_EXIT-"),
@@ -61,13 +89,11 @@ def main():
 
     window = sg.Window("test", layout, size=WINDOW_SIZE, finalize=True)
 
-    canvas_elem: sg.Canvas = window["-CANVAS-"]  # type: ignore
     action_button = window["-BUTTON_ACTION-"]
     status = window["-TEXT_STATUS-"]
     update_status = lambda mes: status.update(value=mes)
 
-    canvas: sg.tkinter.Canvas = canvas_elem.TKCanvas  # type: ignore
-    fig_agg = HeatmapFigCanvas(canvas)
+    figCanvas = FlushableFigCanvas(window["-CANVAS-"].TKCanvas)  # type: ignore
 
     state = STATE_INIT
     action_button.update(text="load")
@@ -98,15 +124,15 @@ def main():
                 update_status("invalid file type")
                 continue
 
-            fig_agg.refresh_with(profile.values(showMaskAsNan=False))
+            figCanvas.heatmap(profile.values(showMaskAsNan=False))
             update_status(f"`{filepath}` successfully loaded")
             state = STATE_WAIT_AUTO_MASK
             action_button.update(text="auto mask")
             continue
 
         if state == STATE_WAIT_AUTO_MASK and event == "-BUTTON_ACTION-":
-            profile.auto_mask()
-            fig_agg.refresh_with(profile.values())
+            profile.auto_mask_invalid()
+            figCanvas.heatmap(profile.values())
             update_status("auto mask done")
             state = STATE_WAIT_DETECT_CENTER
             action_button.update(text="detect center")
@@ -116,14 +142,25 @@ def main():
             if profile.center() is None:
                 update_status("center not detected.\twaiting for manual selection")
                 state = STATE_WAIT_SELECT_CENTER
+                continue
             else:
-                fig_agg.refresh_with(profile.values(showCenterAsNan=True))
+                figCanvas.heatmap(profile.values(showCenterAsNan=True))
                 update_status("center detected")
-                state = STATE_WAIT_1D_CONVERT
+                action_button.update(text="integrate")
+                state = STATE_WAIT_INTEGRATE
+                continue
 
         if state == STATE_WAIT_SELECT_CENTER and event == "-BUTTON_ACTION-":
-            update_status("select center")
-            state = STATE_WAIT_1D_CONVERT
+            update_status("center selection called but not implemented yet")
+            continue
+
+        if state == STATE_WAIT_INTEGRATE and event == "-BUTTON_ACTION-":
+            y, bins = profile.integrate(dr=5.0)
+            x = (bins[:-1] + bins[1:]) / 2
+            y = np.log(y)
+            logger.debug(f"integrated: {x.shape}, {y.shape}")
+            figCanvas.plot(x, y)
+            update_status("integrated")
             continue
 
     window.close()
