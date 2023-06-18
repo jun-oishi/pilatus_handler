@@ -1,8 +1,12 @@
 from Saxs2dProfile import Saxs2dProfile
 import PySimpleGUI as sg
 import util
+
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+from matplotlib.axes import Axes
+import matplotlib as mpl
+import numpy as np
 
 logger = util.getLogger(__name__, util.DEBUG)
 
@@ -11,20 +15,30 @@ TMPDIR = "tmp/"
 WINDOW_SIZE = (500, 750)
 CANVAS_SIZE = (500, 600)
 
+STATE_INIT = "init"
+STATE_WAIT_AUTO_MASK = "wait_auto_mask"
+STATE_WAIT_DETECT_CENTER = "wait_detect_center"
+STATE_WAIT_SELECT_CENTER = "wait_select_center"
+STATE_WAIT_1D_CONVERT = "wait_1d_convert"
 
-def draw_figure(canvas, figure, loc=(0, 0)) -> FigureCanvasTkAgg:
-    figure_canvas_agg = FigureCanvasTkAgg(figure, canvas)
-    figure_canvas_agg.draw()
-    figure_canvas_agg.get_tk_widget().pack(side="top", fill="both", expand=1)
-    return figure_canvas_agg
 
+class HeatmapFigCanvas(FigureCanvasTkAgg):
+    def __init__(self, canvas: sg.tkinter.Canvas):
+        self.canvas = canvas
+        self.fig: Figure = Figure()
+        self.ax: Axes = self.fig.add_subplot(111)
+        self.cmap: mpl.colormap.Colormap = mpl.colormaps.get_cmap("hot").copy()  # type: ignore
+        self.cmap.set_bad("lime", alpha=1.0)
+        super().__init__(self.fig, canvas)
+        self.colorbar = None
+        self.draw()
+        self.get_tk_widget().pack(side="top", fill="both", expand=1)
+        return
 
-def load_tiff(filepath):
-    try:
-        profile = Saxs2dProfile.load_tiff(filepath)
-    except Exception as e:
-        raise e
-    return profile
+    def refresh_with(self, data: np.ndarray):
+        self.ax.clear()
+        im = self.ax.imshow(data, cmap=self.cmap)
+        self.draw()
 
 
 def main():
@@ -39,7 +53,10 @@ def main():
         [sg.Button("-", key="-BUTTON_ACTION-")],
         [sg.Text("successfully initiated", key="-TEXT_STATUS-")],
         [sg.Canvas(size=CANVAS_SIZE, key="-CANVAS-")],
-        [sg.Button("exit", key="-BUTTON_EXIT-")],
+        [
+            sg.Button("exit", key="-BUTTON_EXIT-"),
+            sg.Button("save", key="-BUTTON_SAVE-"),
+        ],
     ]
 
     window = sg.Window("test", layout, size=WINDOW_SIZE, finalize=True)
@@ -50,11 +67,9 @@ def main():
     update_status = lambda mes: status.update(value=mes)
 
     canvas: sg.tkinter.Canvas = canvas_elem.TKCanvas  # type: ignore
-    fig = Figure()
-    ax = fig.add_subplot(111)
-    fig_agg = draw_figure(canvas, fig)
+    fig_agg = HeatmapFigCanvas(canvas)
 
-    state = "init"
+    state = STATE_INIT
     action_button.update(text="load")
     profile: Saxs2dProfile = None  # type: ignore
     while True:
@@ -65,10 +80,15 @@ def main():
         if event == "-BUTTON_EXIT-" or event == sg.WIN_CLOSED:
             break
 
-        if state == "init" and event == "-BUTTON_ACTION-":
+        if event == "-BUTTON_SAVE-":
+            savefile = TMPDIR + "test.png"
+            profile.save(savefile, overwrite=True, showCenter=True)
+            update_status(f"saved to `{savefile}`")
+
+        if state == STATE_INIT and event == "-BUTTON_ACTION-":
             filepath = values["-INPUT_FILEPATH-"]
             try:
-                profile = load_tiff(filepath)
+                profile = Saxs2dProfile.load_tiff(filepath)
             except FileNotFoundError:
                 window["-TEXT_STATUS-"].update(value="file not found")
                 update_status("file not found")
@@ -78,21 +98,32 @@ def main():
                 update_status("invalid file type")
                 continue
 
-            update_status("`{filepath}` successfully loaded")
-            state = "loaded"
-            ax.cla()
-            ax.imshow(profile.values(log=True))
-            fig_agg.draw()
+            fig_agg.refresh_with(profile.values(showMaskAsNan=False))
+            update_status(f"`{filepath}` successfully loaded")
+            state = STATE_WAIT_AUTO_MASK
             action_button.update(text="auto mask")
             continue
 
-        if state == "loaded" and event == "-BUTTON_ACTION-":
+        if state == STATE_WAIT_AUTO_MASK and event == "-BUTTON_ACTION-":
             profile.auto_mask()
-            ax.cla()
-            ax.imshow(profile.values(log=True))
-            fig_agg.draw()
-            action_button.update(text="mask")
-            state = "masked"
+            fig_agg.refresh_with(profile.values())
+            update_status("auto mask done")
+            state = STATE_WAIT_DETECT_CENTER
+            action_button.update(text="detect center")
+            continue
+        if state == STATE_WAIT_DETECT_CENTER and event == "-BUTTON_ACTION-":
+            profile.detect_center()
+            if profile.center() is None:
+                update_status("center not detected.\twaiting for manual selection")
+                state = STATE_WAIT_SELECT_CENTER
+            else:
+                fig_agg.refresh_with(profile.values(showCenterAsNan=True))
+                update_status("center detected")
+                state = STATE_WAIT_1D_CONVERT
+
+        if state == STATE_WAIT_SELECT_CENTER and event == "-BUTTON_ACTION-":
+            update_status("select center")
+            state = STATE_WAIT_1D_CONVERT
             continue
 
     window.close()

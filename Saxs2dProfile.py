@@ -9,6 +9,25 @@ import util
 _logger = util.getLogger(__name__, level=util.DEBUG)
 
 
+def _compress(arr: np.ndarray, dtype, min: int | None = None, max: int | None = None):
+    """
+    compress array
+    """
+    if min is None:
+        min = arr.min()
+    if max is None:
+        max = arr.max()
+
+    zero2one: np.ndarray = (arr - min) / (max - min)  # type: ignore
+    if dtype == np.uint8:
+        return (zero2one * ((1 << 8) - 1)).astype(dtype)
+    elif dtype == np.uint16:
+        return (zero2one * ((1 << 16) - 1)).astype(dtype)
+    else:
+        _logger.error(f"invalid dtype: {dtype}")
+        raise ValueError("invalid dtype: only uint8 and uint16 are supported")
+
+
 class _Masks(np.ndarray):
     """Mask list class for SAXS profile
 
@@ -42,6 +61,7 @@ class _Masks(np.ndarray):
         """
         append mask
         """
+        _logger.debug(f"append mask: shape={new_mask.shape} ,dtype={new_mask.dtype}")
         if new_mask.shape != self.shape:
             raise ValueError("invalid shape")
         self.__masks.append(new_mask)
@@ -63,23 +83,30 @@ class _Masks(np.ndarray):
         return
 
 
+GREEN = (0, 255, 0)
+
+
 class Saxs2dProfile:
     """SAXS 2D profile class
 
     Attributes:
         __raw: raw image
         __img: image after processing
-        _Masks: mask of the image
+        __masks: mask of the image
+        __center:
     """
+
+    DEFAULT_MARK_COLOR = GREEN
 
     def __new__(cls):
         raise NotImplementedError(f"{cls} default initializer not implemented")
 
     def __init__(self, raw: np.ndarray):
         _logger.debug(f"initializing Saxs2dProfile with raw:{id(raw):x}, {raw.shape}")
-        self.__raw = raw
-        self.__masks = _Masks(self.__raw)
-        self.__update()
+        self.__raw: np.ndarray = raw
+        self.__buf: np.ndarray = np.zeros_like(raw)
+        self.__masks: _Masks = _Masks(self.__raw)
+        self.__center: tuple = (np.nan, np.nan)
         _logger.debug(f"id(self.__raw): {id(self.__raw)}")
 
     def shape(self):
@@ -100,22 +127,26 @@ class Saxs2dProfile:
         _logger.debug(f"max: {ret.__raw.max()}, min: {ret.__raw.min()}")
         return ret
 
-    def __update(self):
-        """update self.__img"""
-        self.__img = self.__raw
-        self.__apply_mask()
-        _logger.debug(
-            f"self.__img.shape : {self.__img.shape}, self.__img.dtype : {self.__img.dtype}"
-        )
-
-    def values(self, log: bool = True, showMask: bool = False) -> np.ndarray:
-        self.__update()
-        ret = self.__img
+    def values(
+        self,
+        log: bool = True,
+        showMaskAsNan: bool = True,
+        showCenterAsNan: bool = False,
+    ) -> np.ndarray:
+        self.__buf = self.__raw.copy()
+        if showMaskAsNan:
+            self.__buf = self.__buf.astype(np.float32)
+            self.__buf[self.__masks == 0] = np.nan
+        else:
+            self.__buf *= self.__masks
         if log:
-            ret = np.log(np.maximum(self.__img, 1))
-        # if showMask:
-        #     ret +=
-        return ret
+            self.__log()
+        if showCenterAsNan:
+            self.__draw_center()
+        return self.__buf
+
+    def center(self):
+        return self.__center
 
     def save(
         self,
@@ -123,7 +154,9 @@ class Saxs2dProfile:
         *,
         overwrite: bool = False,
         log: bool = True,
-        color: bool = False,
+        color: bool = True,
+        showMask: bool = True,
+        showCenter: bool = False,
     ) -> int:
         """
         update and save image
@@ -131,27 +164,96 @@ class Saxs2dProfile:
         """
         if (not overwrite) and (os.path.exists(path)):
             raise FileExistsError("")
-        self.__update()
-        toWrite = self.__img
+        self.__buf = self.__raw.copy()
+        self.__buf *= self.__masks
         if log:
-            toWrite = np.log(np.maximum(self.__img, 1))
+            self.__log()
         if color:
-            max = toWrite.max()
-            min = toWrite.min()
-            _logger.debug(f"max: {max}, min: {min}")
-            toWrite = ((toWrite - min) / (max - min)) * ((1 << 8) - 1)
-            toWrite = np.asarray(toWrite, dtype=np.uint8)
-            _logger.debug(f"max: {toWrite.max()}, min: {toWrite.min()}")
-            toWrite = cv2.applyColorMap(toWrite, cv2.COLORMAP_JET)
-        cv2.imwrite(path, toWrite)
+            # shape=>(height,width,3), dtype=>uint8
+            self.__toColor()
+            if showMask:
+                self.__buf[self.__masks == 0] = self.DEFAULT_MARK_COLOR
+            if showCenter and self.__center[0] is not np.nan:
+                self.__draw_center()
+        cv2.imwrite(path, self.__buf)
         return 0
 
-    def __apply_mask(self):
-        """apply self._Masks to self.__img"""
-        self.__img = self.__img * self.__masks
+    def __log(self, nonPositiveValueAs=1):
+        if nonPositiveValueAs == 1:
+            self.__buf = np.log(np.maximum(self.__buf, 1))
+        elif nonPositiveValueAs == np.nan:
+            self.__buf[self.__buf <= 0] = np.nan
+            self.__bug = np.log(self.__buf)
+
+    def __draw_center(
+        self,
+        *,
+        color="Nan or green",
+        markerType: int = cv2.MARKER_TILTED_CROSS,
+        markerSize=100,
+        thickness=2,
+    ):
+        if self.__center[0] is np.nan:
+            return
+        if color == "Nan or green":
+            if len(self.__buf.shape) == 2:
+                color = np.nan
+            else:
+                color = (0, 255, 0)
+        center = (int(self.__center[0]), int(self.__center[1]))
+        cv2.drawMarker(self.__buf, center, color, markerType, markerSize, thickness)
+        return
+
+    def __compress(self, dtype=np.uint8, min=None, max=None):
+        if min is None:
+            min = self.__buf.min()
+        if max is None:
+            max = self.__buf.max()
+
+        zero2one: np.ndarray = (self.__buf - min) / (max - min)  # type: ignore
+        if dtype == np.uint8:
+            self.__buf = (zero2one * ((1 << 8) - 1)).astype(dtype)
+        elif dtype == np.uint16:
+            self.__buf = (zero2one * ((1 << 16) - 1)).astype(dtype)
+        else:
+            _logger.error(f"invalid dtype: {dtype}")
+            raise ValueError("invalid dtype: only uint8 and uint16 are supported")
+        return
+
+    def __toColor(self, cmap=cv2.COLORMAP_HOT):
+        self.__compress()
+        self.__buf = cv2.applyColorMap(self.__buf, cmap)
+        return
 
     def add_rectangle_mask(self, top: int, bottom: int, left: int, right: int):
         self.__masks.add_rectangle(top, bottom, left, right)
 
     def auto_mask(self):
-        self.__masks.append(self.__raw >= -1)
+        self.__masks.append(self.__raw >= 0)  # nan=>0, otherwise=>1
+
+    def detect_center(self):
+        toDetect = self.__raw.copy()
+        cutoff = np.median(toDetect)
+        toDetect[toDetect < cutoff] = 0
+        _logger.debug(
+            f"toDetect shape: {toDetect.shape}, dtype: {toDetect.dtype}, max:{toDetect.max()}"
+        )
+        toDetect = _compress(toDetect, dtype=np.uint8)
+        circles = cv2.HoughCircles(
+            toDetect,
+            cv2.HOUGH_GRADIENT,
+            1,
+            20,
+            param1=50,
+            param2=30,
+            minRadius=0,
+            maxRadius=0,
+        )
+        if circles is None:
+            _logger.info("no circle detected")
+        else:
+            _logger.debug(
+                f"toDetect.shape: {toDetect.shape}, toDetect.dtype: {toDetect.dtype}"
+            )
+            _logger.info(f"circle detected: {circles.shape}")
+            self.__center = circles[0, 0, 0], circles[0, 0, 1]
