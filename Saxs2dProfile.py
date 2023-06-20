@@ -1,38 +1,27 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
+"""module for 2D SAXS profile"""
 
 import numpy as np
 import cv2
 import os
 import util
 
+
 _logger = util.getLogger(__name__, level=util.DEBUG)
 
 
-def _compress(arr: np.ndarray, dtype, min: int | None = None, max: int | None = None):
-    """
-    compress array
-    """
-    if min is None:
-        min = arr.min()
-    if max is None:
-        max = arr.max()
-
-    zero2one: np.ndarray = (arr - min) / (max - min)  # type: ignore
-    if dtype == np.uint8:
-        return (zero2one * ((1 << 8) - 1)).astype(dtype)
-    elif dtype == np.uint16:
-        return (zero2one * ((1 << 16) - 1)).astype(dtype)
-    else:
-        _logger.error(f"invalid dtype: {dtype}")
-        raise ValueError("invalid dtype: only uint8 and uint16 are supported")
-
-
 class _Masks(np.ndarray):
-    """Mask list class for SAXS profile
+    """array-like class for masks
+    support operations like numpy.ndarray
+    value is always 0 or 1, 0 for masked pixel
 
-    attributes:
-        _masks: list of masks
+    Methods
+    -------
+    append(new_mask: np.ndarray)
+        append new mask and update value of self
+    add_circle(center: tuple, radius: float, maskType: str = "out")
+        add circle mask
+    undo():
+        delete last added mask
     """
 
     def __new__(cls, mold):
@@ -42,25 +31,19 @@ class _Masks(np.ndarray):
         return self
 
     def __init__(self, mold):
-        """
-        initialize with mold for shape
-        """
+        """initialize with mold for shape"""
         self.__masks = []
         return
 
-    def __update(self):
-        """
-        update mask
-        """
+    def __update(self) -> None:
+        """update mask"""
         self[:] = self * 0 + 1
         for mask in self.__masks:
             self *= mask
         return
 
-    def append(self, new_mask: np.ndarray):
-        """
-        append mask
-        """
+    def append(self, new_mask: np.ndarray) -> None:
+        """append mask"""
         _logger.debug(f"append mask: shape={new_mask.shape} ,dtype={new_mask.dtype}")
         if new_mask.shape != self.shape:
             raise ValueError("invalid shape")
@@ -68,40 +51,43 @@ class _Masks(np.ndarray):
         self *= new_mask
         return
 
-    def __pop(self, index: int):
+    def __pop(self, index: int) -> None:
+        """delete mask at the specified index"""
         self.__masks.pop(index)
         self.__update()
         return
 
-    def add_rectangle(self, top: int, bottom: int, left: int, right: int):
-        arr = np.ones_like(self)
-        arr[top:bottom, left:right] = 0
-        self.append(arr)
-        return
-
-    def add_circle(self, center: tuple, radius: float):
+    def add_circle(self, center: tuple, radius: float, maskType: str = "out") -> None:
+        """add circle mask
+        maskType: "out" or "in", default "out" for mask outside circle
+        """
         dx = np.ones_like(self) * np.arange(self.shape[1]) - center[1]
         dy = np.ones_like(self) * np.arange(self.shape[0]).reshape(-1, 1) - center[0]
         dist = np.sqrt(dx**2 + dy**2)
-        mask = dist > radius
-        self.append(mask)
+        if maskType == "out":
+            self.append(dist < radius)
+        elif maskType == "in":
+            self.append(dist > radius)
+        else:
+            raise ValueError("invalid mask")
+        return
 
-    def undo(self):
+    def undo(self) -> None:
+        """delete last added mask"""
         self.__pop(-1)
         return
 
 
-GREEN = (0, 255, 0)
+GREEN = (0, 255, 0)  # BGR
 
 
 class Saxs2dProfile:
     """SAXS 2D profile class
 
-    Attributes:
-        __raw: raw image
-        __img: image after processing
-        __masks: mask of the image
-        __center:
+    Methods
+    -------
+    values(log:bool=True, showMaskAsNan:bool=True, showCenterAsNan:bool=False)
+        return modified values
     """
 
     DEFAULT_MARK_COLOR = GREEN
@@ -117,7 +103,8 @@ class Saxs2dProfile:
         self.__center: tuple = (np.nan, np.nan)
         _logger.debug(f"id(self.__raw): {id(self.__raw)}")
 
-    def shape(self):
+    @property
+    def shape(self) -> tuple[int, int]:
         return self.__raw.shape
 
     @classmethod
@@ -125,7 +112,18 @@ class Saxs2dProfile:
         return object.__new__(cls)
 
     @classmethod
-    def load_tiff(cls, path: str):
+    def load_tiff(cls, path: str) -> "Saxs2dProfile":
+        """load profile from tiff file
+
+        Parameters
+        ----------
+        path: str
+            path to tiff file
+
+        Returns
+        -------
+        Saxs2dProfile
+        """
         ret = cls.__internal_new()
         if not os.path.exists(path):
             raise FileNotFoundError("")
@@ -141,6 +139,22 @@ class Saxs2dProfile:
         showMaskAsNan: bool = True,
         showCenterAsNan: bool = False,
     ) -> np.ndarray:
+        """get modified values
+
+        Parameters
+        ----------
+        log: bool, default True
+            if True, return ln(values), set nan for value <= 0
+        showMaskAsNan: bool, default True
+            if True, set nan for masked pixel
+        showCenterAsNan: bool, default False
+            if True, draw center mark(tilted cross) with nan value
+
+        Returns
+        -------
+        np.ndarray
+            the shape is same as raw data
+        """
         self.__buf = self.__raw.copy()
         if showMaskAsNan:
             self.__buf = self.__buf.astype(np.float32)
@@ -154,8 +168,28 @@ class Saxs2dProfile:
 
         return self.__buf
 
-    def center(self):
+    @property
+    def center(self) -> tuple[float, float]:
         return self.__center
+
+    @center.setter
+    def center(self, center: tuple[float, float]):
+        try:
+            if len(center) != 2:
+                raise TypeError("")
+        except TypeError:
+            raise TypeError("center must be array-like of 2 floats")
+
+        shape = self.__raw.shape
+        if (
+            (0 < center[0])
+            and (center[0] < shape[0])
+            and (0 < center[1])
+            and (center[1] < shape[1])
+        ):
+            self.__center = center
+        else:
+            raise ValueError("center must be in the range of raw data")
 
     def save(
         self,
@@ -167,9 +201,23 @@ class Saxs2dProfile:
         showMask: bool = True,
         showCenter: bool = False,
     ) -> int:
-        """
-        update and save image
+        """save modified image
         returns 0 if success
+
+        Parameters
+        ----------
+        path: str
+            path to save
+        overwrite: bool, default False
+            if True, overwrite existing file, if False, raise FileExistsError if file exists
+        log: bool, default True
+            if True, save ln(values), set nan for value <= 0
+        color: bool, default True
+            if True, save as color image
+        showMask: bool, default True
+            if True, show mask with green or nan, if False, mask is set as 0
+        showCenter: bool, default False
+            if True, draw center mark(tilted cross) with the same color as masked pixels
         """
         if (not overwrite) and (os.path.exists(path)):
             raise FileExistsError("")
@@ -187,12 +235,21 @@ class Saxs2dProfile:
         cv2.imwrite(path, self.__buf)
         return 0
 
-    def __log(self, nonPositiveValueAs=1):
-        if nonPositiveValueAs == 1:
+    def __log(self, nonPositiveValueAs=0) -> None:
+        """update self.__buf with ln(self.__buf)
+
+        Parameters
+        ----------
+        nonPositiveValueAs: 0 or np.nan, default 0
+            value to set for non-positive value
+        """
+        if nonPositiveValueAs == 0:
             self.__buf = np.log(np.maximum(self.__buf, 1))
         elif nonPositiveValueAs == np.nan:
-            self.__buf[self.__buf <= 0] = np.nan
-            self.__bug = np.log(self.__buf)
+            self.__buf = np.log(self.__buf)
+        else:
+            raise ValueError("nonPositiveValueAs must be 0 or np.nan")
+        return
 
     def __draw_center(
         self,
@@ -201,7 +258,20 @@ class Saxs2dProfile:
         markerType: int = cv2.MARKER_TILTED_CROSS,
         markerSize=100,
         thickness=2,
-    ):
+    ) -> None:
+        """draw center mark on self.__buf
+
+        Parameters
+        ----------
+        color: "Nan or green" or tuple of int, default "Nan or green"
+            color of center mark, by default, green for colored image or nan for grayscale image
+        markerType: int, default cv2.MARKER_TILTED_CROSS
+            marker type of cv2.drawMarker
+        markerSize: int, default 100
+            marker size of cv2.drawMarker
+        thickness: int, default 2
+            thickness of cv2.drawMarker
+        """
         if self.__center[0] is np.nan:
             return
         if color == "Nan or green":
@@ -213,7 +283,19 @@ class Saxs2dProfile:
         cv2.drawMarker(self.__buf, center, color, markerType, markerSize, thickness)
         return
 
-    def __compress(self, dtype=np.uint8, min=None, max=None):
+    def __compress(self, dtype=np.uint8, *, min=None, max=None, setNanAs=None) -> None:
+        """compress self.__buf to dtype
+
+        Parameters
+        ----------
+        dtype: np.uint8 or np.uint16, default np.uint8
+            dtype of compressed image
+        min: numeric
+            value to set as 0, by default, self.__buf.min()
+        """
+        if setNanAs is not None and np.any(self.__buf == np.nan):
+            raise ValueError("self.__buf contains nan")
+
         if min is None:
             min = self.__buf.min()
         if max is None:
@@ -221,32 +303,50 @@ class Saxs2dProfile:
 
         zero2one: np.ndarray = (self.__buf - min) / (max - min)  # type: ignore
         if dtype == np.uint8:
-            self.__buf = (zero2one * ((1 << 8) - 1)).astype(dtype)
+            toCast = zero2one * ((1 << 8) - 1)
         elif dtype == np.uint16:
-            self.__buf = (zero2one * ((1 << 16) - 1)).astype(dtype)
+            toCast = zero2one * ((1 << 16) - 1)
         else:
             _logger.error(f"invalid dtype: {dtype}")
             raise ValueError("invalid dtype: only uint8 and uint16 are supported")
+        toCast[toCast == np.nan] = setNanAs
+        self.__buf = toCast.astype(dtype)
         return
 
-    def __toColor(self, cmap=cv2.COLORMAP_HOT):
+    def __toColor(self, cmap=cv2.COLORMAP_HOT) -> None:
+        """convert self.__buf grayscale array to color image
+
+        Parameters
+        ----------
+        cmap: cv2.COLORMAP_*, default cv2.COLORMAP_HOT
+        """
         self.__compress()
         self.__buf = cv2.applyColorMap(self.__buf, cmap)
         return
 
-    def auto_mask_invalid(self):
+    def auto_mask_invalid(self) -> None:
+        """add mask for invalid pixels to self.__masks
+        for data from pilatus sensor, negative values means invalid pixels
+        """
         self.__masks.append(self.__raw >= 0)  # nan=>0, otherwise=>1
+        return
 
-    def detect_center(self):
-        toDetect = self.__raw.copy()
-        cutoff = np.median(toDetect)
-        toDetect[toDetect < cutoff] = 0
-        _logger.debug(
-            f"toDetect shape: {toDetect.shape}, dtype: {toDetect.dtype}, max:{toDetect.max()}"
-        )
-        toDetect = _compress(toDetect, dtype=np.uint8)
+    def detect_center(self) -> tuple[float, float]:
+        """detect center and set to self.__center
+        detect center by cv2.HoughCircles
+        if no circle is detected, no error raised and self.__center is not updated
+
+        Returns
+        -------
+        center: tuple[float,float]
+            center of circle, (nan,nan) if no circle is detected
+        """
+        self.__buf = self.__raw.copy()
+        cutoff = np.median(self.__buf)
+        self.__buf[self.__buf < cutoff] = 0
+        self.__compress(dtype=np.uint8)
         circles = cv2.HoughCircles(
-            toDetect,
+            self.__buf,
             cv2.HOUGH_GRADIENT,
             1,
             20,
@@ -258,21 +358,10 @@ class Saxs2dProfile:
         if circles is None:
             _logger.info("no circle detected")
         else:
-            _logger.debug(
-                f"toDetect.shape: {toDetect.shape}, toDetect.dtype: {toDetect.dtype}"
-            )
             _logger.info(f"circle detected: {circles.shape}")
             self.__center = circles[0, 0, 0], circles[0, 0, 1]
 
-        return
-
-    def auto_mask_outer(self):
-        if self.__center[0] is np.nan:
-            self.detect_center()
-            if self.__center[0] is np.nan:
-                raise ValueError("fail to detect center")
-        # TODO: implement
-        raise NotImplementedError("Please implement me")
+        return self.center
 
     def integrate(
         self,
@@ -281,6 +370,24 @@ class Saxs2dProfile:
         bins: np.ndarray = np.arange(0),
         range: tuple[float, float] = (np.nan, np.nan),
     ) -> tuple[np.ndarray, np.ndarray]:
+        """integrate along circumference
+
+        Parameters
+        ----------
+        dr: float
+            radius step, ignored if bins is specified
+        bins: np.ndarray
+            edges of each segment with length (number of segments)+1, if specified, dr is ignored
+        range: tuple[float, float]
+            range of radius, ignored if bins is specified
+
+        Returns
+        -------
+        intensity: np.ndarray
+            integrated intensity for each segment
+        bins: np.ndarray
+            bin edges finally used, same as input bins if specified
+        """
         buf = self.__raw.copy()
 
         dx = np.ones_like(buf) * np.arange(buf.shape[1]) - self.__center[1]
@@ -302,7 +409,7 @@ class Saxs2dProfile:
             else:
                 bins = np.arange(range[0], range[1], dr)
 
-        ret = np.zeros(bins.size - 1)
+        intensity = np.zeros(bins.size - 1)
         for i in np.arange(bins.size - 1):
             bottom = bins[i]
             top = bins[i + 1]
@@ -310,6 +417,6 @@ class Saxs2dProfile:
             num = np.sum(filter)
             sum = np.nansum(buf * filter)
             avg = sum / num
-            ret[i] = avg
+            intensity[i] = avg
 
-        return ret, bins
+        return intensity, bins

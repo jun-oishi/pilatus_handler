@@ -24,33 +24,44 @@ STATE_WAIT_INTEGRATE = "wait_integrate"
 
 
 class FlushableFigCanvas:
+    """canvas for matplotlib figure on tkinter"""
+
     def __init__(self, canvas: sg.tkinter.Canvas):
         self.__canvas = canvas
         self.__canvas_packed = {}
         self.__fig_agg: FigureCanvasTkAgg = None  # type: ignore
         return
 
-    def draw(self, figure: Figure):
+    def draw(self, figure: Figure) -> None:
+        """refresh canvas and draw figure
+
+        Parameters
+        ----------
+        figure : mlp.figure.Figure
+            figure to draw
+        """
         if self.__fig_agg is not None:
             self.__flush()
         self.__fig_agg = FigureCanvasTkAgg(figure, self.__canvas)
         self.__fig_agg.draw()
-        # toolbar = NavigationToolbar2Tk(self.__canvas, pack_toolbar=False)
-        # toolbar.update()
         widget = self.__fig_agg.get_tk_widget()
         if widget not in self.__canvas_packed:
             self.__canvas_packed[widget] = True
             widget.pack(side="top", fill="both", expand=1)
+        return
 
-    def __flush(self):
+    def __flush(self) -> None:
+        """remove figure"""
         self.__fig_agg.get_tk_widget().forget()
         try:
             self.__canvas_packed.pop(self.__fig_agg.get_tk_widget())
         except Exception as e:
             logger.error(f"error removing {self.__fig_agg}: {e}")
         plt.close("all")
+        return
 
-    def heatmap(self, data: np.ndarray):
+    def heatmap(self, data: np.ndarray) -> None:
+        """flush canvas and draw heatmap"""
         fig = Figure()
         ax = fig.add_subplot(111)
         cmap: mpl.colormap.Colormap = mpl.colormaps.get_cmap("hot").copy()  # type: ignore
@@ -58,12 +69,15 @@ class FlushableFigCanvas:
         im = ax.imshow(data, cmap=cmap)
         fig.colorbar(im, ax=ax)
         self.draw(fig)
+        return
 
-    def plot(self, x: np.ndarray, y: np.ndarray):
+    def plot(self, x: np.ndarray, y: np.ndarray) -> None:
+        """flush canvas and draw line plot"""
         fig = Figure()
         ax = fig.add_subplot(111)
         ax.plot(x, y)
         self.draw(fig)
+        return
 
 
 def main():
@@ -139,7 +153,7 @@ def main():
             continue
         if state == STATE_WAIT_DETECT_CENTER and event == "-BUTTON_ACTION-":
             profile.detect_center()
-            if profile.center() is None:
+            if profile.center is None:
                 update_status("center not detected.\twaiting for manual selection")
                 state = STATE_WAIT_SELECT_CENTER
                 continue
