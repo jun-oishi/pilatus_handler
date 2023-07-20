@@ -5,8 +5,9 @@ import cv2
 import os
 import util
 
+__version__ = "0.0.20"
 
-_logger = util.getLogger(__name__, level=util.DEBUG)
+_logger = util.getLogger(__name__, level=util.WARNING)
 
 
 class _Masks(np.ndarray):
@@ -279,7 +280,7 @@ class Saxs2dProfile:
                 color = np.nan
             else:
                 color = (0, 255, 0)
-        center = (int(self.__center[0]), int(self.__center[1]))
+        center = (int(self.__center[1]), int(self.__center[0]))
         cv2.drawMarker(self.__buf, center, color, markerType, markerSize, thickness)
         return
 
@@ -324,11 +325,11 @@ class Saxs2dProfile:
         self.__buf = cv2.applyColorMap(self.__buf, cmap)
         return
 
-    def auto_mask_invalid(self) -> None:
+    def auto_mask_invalid(self, thresh=2) -> None:
         """add mask for invalid pixels to self.__masks
         for data from pilatus sensor, negative values means invalid pixels
         """
-        self.__masks.append(self.__raw >= 0)  # nan=>0, otherwise=>1
+        self.__masks.append(self.__raw >= thresh)  # nan=>0, otherwise=>1
         return
 
     def detect_center(self) -> tuple[float, float]:
@@ -359,7 +360,7 @@ class Saxs2dProfile:
             _logger.info("no circle detected")
         else:
             _logger.info(f"circle detected: {circles.shape}")
-            self.__center = circles[0, 0, 0], circles[0, 0, 1]
+            self.__center = circles[0, 0, 1], circles[0, 0, 0]
 
         return self.center
 
@@ -369,7 +370,7 @@ class Saxs2dProfile:
         dr: float = np.nan,
         bins: np.ndarray = np.arange(0),
         range: tuple[float, float] = (np.nan, np.nan),
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """integrate along circumference
 
         Parameters
@@ -395,28 +396,31 @@ class Saxs2dProfile:
             np.ones_like(buf) * np.arange(buf.shape[0]).reshape(-1, 1)
             - self.__center[0]
         )
-        dist = np.sqrt(dx**2 + dy**2)
-        buf = buf * 2 * np.pi * dist * self.__masks
+        r = np.sqrt(dx**2 + dy**2)
+        # buf = buf * 2 * np.pi * r * self.__masks / (1 + (r / 300) ** 2)
+        buf = buf * self.__masks
 
         if bins.size == 0:
             if np.isnan(dr):
                 raise ValueError("dr or bins must be specified")
             if range == (np.nan, np.nan):
-                range = (np.nanmin(dist), np.nanmax(dist))  # type: ignore
+                range = (np.nanmin(r), np.nanmax(r))  # type: ignore
 
             if (range[1] - range[0]) % dr > 1e-6:
                 bins = np.arange(range[0], range[1] + dr, dr)
             else:
                 bins = np.arange(range[0], range[1], dr)
 
-        intensity = np.zeros(bins.size - 1)
+        intensity = np.empty(bins.size - 1)
+        n = np.empty(bins.size - 1)
         for i in np.arange(bins.size - 1):
-            bottom = bins[i]
-            top = bins[i + 1]
-            filter = (dist >= bottom) & (dist < top)
-            num = np.sum(filter)
-            sum = np.nansum(buf * filter)
-            avg = sum / num
-            intensity[i] = avg
+            filter = (r >= bins[i]) & (r < bins[i + 1])
+            tmp = buf * filter
+            n[i] = np.sum(tmp > 0)
+            if n[i] == 0:
+                intensity[i] = np.nan
+                continue
+            sum = np.nansum(tmp)
+            intensity[i] = sum / n[i]
 
-        return intensity, bins
+        return intensity, bins, n
