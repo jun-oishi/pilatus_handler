@@ -5,7 +5,7 @@ import cv2
 import os
 import util
 
-__version__ = "0.0.20"
+__version__ = "0.0.25"
 
 _logger = util.getLogger(__name__, level=util.WARNING)
 
@@ -105,7 +105,7 @@ class Saxs2dProfile:
             raise FileNotFoundError("")
         if path[-4:] != ".tif":
             raise ValueError("invalid file type")
-        ret.__init__(cv2.imread(path, cv2.IMREAD_UNCHANGED))
+        ret.__init__(cv2.imread(path, cv2.IMREAD_UNCHANGED)[::-1, :])
         _logger.debug(f"max: {ret.__raw.max()}, min: {ret.__raw.min()}")
         return ret
 
@@ -133,7 +133,7 @@ class Saxs2dProfile:
             the shape is same as raw data
         """
         self.__buf = self.__raw.copy()
-        self.__buf *= self.__masks
+        self.__buf = (self.__buf * self.__masks).astype(self.__buf.dtype)
         if log:
             self.__log()
         if showCenterAsNan:
@@ -155,16 +155,7 @@ class Saxs2dProfile:
         except TypeError:
             raise TypeError("center must be array-like of 2 floats")
 
-        shape = self.__raw.shape
-        if (
-            (0 < center[0])
-            and (center[0] < shape[0])
-            and (0 < center[1])
-            and (center[1] < shape[1])
-        ):
-            self.__center = center
-        else:
-            raise ValueError("center must be in the range of raw data")
+        self.__center = (center[1], center[0])
 
     def save(
         self,
@@ -344,7 +335,8 @@ class Saxs2dProfile:
         dr: float = np.nan,
         bins: np.ndarray = np.arange(0),
         range: tuple[float, float] = (np.nan, np.nan),
-    ) -> tuple[np.ndarray, np.ndarray]:
+        # ) -> tuple[np.ndarray, np.ndarray]:
+    ):
         """compute radial average
 
         Parameters
@@ -386,7 +378,7 @@ class Saxs2dProfile:
 
         intensity = np.empty(bins.size - 1)
         for i in np.arange(bins.size - 1):
-            filter = (r >= bins[i]) & (r < bins[i + 1])
+            filter = ((r >= bins[i]) & (r < bins[i + 1])).astype(np.float32)
             filter[filter == False] = np.nan
             tmp = buf * filter
             intensity[i] = np.nanmean(tmp)

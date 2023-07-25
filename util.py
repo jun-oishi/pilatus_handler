@@ -7,6 +7,8 @@ from logging import StreamHandler as __StreamHandler
 from logging import Formatter as __Formatter
 from logging import config as logging_config
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
+import os
+import re
 
 # __LOG_CONFIG_FILE = "config/log_config.json"
 
@@ -28,3 +30,10 @@ def getLogger(name, level=WARNING):
     logger.addHandler(handler)
     logger.propagate = False
     return logger
+
+
+def listFiles(dir, *, ext=".tif"):
+    all = os.listdir(dir)
+    files = list(filter(lambda x: x.endswith(ext), all))
+    getNum = lambda s: int(s.split(".")[0].split("_")[-1])
+    return sorted(files, key=getNum)
