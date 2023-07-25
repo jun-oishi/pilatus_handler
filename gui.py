@@ -138,7 +138,7 @@ def main():
                 update_status("invalid file type")
                 continue
 
-            figCanvas.heatmap(profile.values(showMaskAsNan=False))
+            figCanvas.heatmap(profile.values())
             update_status(f"`{filepath}` successfully loaded")
             state = STATE_WAIT_AUTO_MASK
             action_button.update(text="auto mask")
@@ -169,7 +169,7 @@ def main():
             continue
 
         if state == STATE_WAIT_INTEGRATE and event == "-BUTTON_ACTION-":
-            y, bins = profile.integrate(dr=5.0)
+            y, bins = profile.radial_average(dr=5.0)
             x = (bins[:-1] + bins[1:]) / 2
             y = np.log(y)
             logger.debug(f"integrated: {x.shape}, {y.shape}")

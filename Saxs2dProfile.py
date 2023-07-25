@@ -10,6 +10,9 @@ __version__ = "0.0.20"
 _logger = util.getLogger(__name__, level=util.WARNING)
 
 
+_MASK_DTYPE = np.float32
+
+
 class _Masks(np.ndarray):
     """array-like class for masks
     support operations like numpy.ndarray
@@ -19,15 +22,11 @@ class _Masks(np.ndarray):
     -------
     append(new_mask: np.ndarray)
         append new mask and update value of self
-    add_circle(center: tuple, radius: float, maskType: str = "out")
-        add circle mask
-    undo():
-        delete last added mask
     """
 
     def __new__(cls, mold):
         value = np.ones_like(mold)
-        self = np.asarray(value, dtype=bool).view(cls)
+        self = np.asarray(value, dtype=_MASK_DTYPE).view(cls)
         self.__masks = []
         return self
 
@@ -48,34 +47,10 @@ class _Masks(np.ndarray):
         _logger.debug(f"append mask: shape={new_mask.shape} ,dtype={new_mask.dtype}")
         if new_mask.shape != self.shape:
             raise ValueError("invalid shape")
+        toAppend = np.full_like(self, np.nan, dtype=_MASK_DTYPE)
+        toAppend[new_mask > 0] = 1
         self.__masks.append(new_mask)
         self *= new_mask
-        return
-
-    def __pop(self, index: int) -> None:
-        """delete mask at the specified index"""
-        self.__masks.pop(index)
-        self.__update()
-        return
-
-    def add_circle(self, center: tuple, radius: float, maskType: str = "out") -> None:
-        """add circle mask
-        maskType: "out" or "in", default "out" for mask outside circle
-        """
-        dx = np.ones_like(self) * np.arange(self.shape[1]) - center[1]
-        dy = np.ones_like(self) * np.arange(self.shape[0]).reshape(-1, 1) - center[0]
-        dist = np.sqrt(dx**2 + dy**2)
-        if maskType == "out":
-            self.append(dist < radius)
-        elif maskType == "in":
-            self.append(dist > radius)
-        else:
-            raise ValueError("invalid mask")
-        return
-
-    def undo(self) -> None:
-        """delete last added mask"""
-        self.__pop(-1)
         return
 
 
@@ -136,9 +111,10 @@ class Saxs2dProfile:
 
     def values(
         self,
+        *,
         log: bool = True,
-        showMaskAsNan: bool = True,
         showCenterAsNan: bool = False,
+        nan2zero: bool = False,
     ) -> np.ndarray:
         """get modified values
 
@@ -157,15 +133,13 @@ class Saxs2dProfile:
             the shape is same as raw data
         """
         self.__buf = self.__raw.copy()
-        if showMaskAsNan:
-            self.__buf = self.__buf.astype(np.float32)
-            self.__buf[self.__masks == 0] = np.nan
-        else:
-            self.__buf *= self.__masks
+        self.__buf *= self.__masks
         if log:
             self.__log()
         if showCenterAsNan:
             self.__draw_center()
+        if nan2zero:
+            self.__buf[np.isnan(self.__buf)] = 0
 
         return self.__buf
 
@@ -230,7 +204,7 @@ class Saxs2dProfile:
             # shape=>(height,width,3), dtype=>uint8
             self.__toColor()
             if showMask:
-                self.__buf[self.__masks == 0] = self.DEFAULT_MARK_COLOR
+                self.__buf[np.isnan(self.__masks)] = self.DEFAULT_MARK_COLOR
             if showCenter and self.__center[0] is not np.nan:
                 self.__draw_center()
         cv2.imwrite(path, self.__buf)
@@ -364,14 +338,14 @@ class Saxs2dProfile:
 
         return self.center
 
-    def integrate(
+    def radial_average(
         self,
         *,
         dr: float = np.nan,
         bins: np.ndarray = np.arange(0),
         range: tuple[float, float] = (np.nan, np.nan),
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """integrate along circumference
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """compute radial average
 
         Parameters
         ----------
@@ -397,7 +371,6 @@ class Saxs2dProfile:
             - self.__center[0]
         )
         r = np.sqrt(dx**2 + dy**2)
-        # buf = buf * 2 * np.pi * r * self.__masks / (1 + (r / 300) ** 2)
         buf = buf * self.__masks
 
         if bins.size == 0:
@@ -412,15 +385,10 @@ class Saxs2dProfile:
                 bins = np.arange(range[0], range[1], dr)
 
         intensity = np.empty(bins.size - 1)
-        n = np.empty(bins.size - 1)
         for i in np.arange(bins.size - 1):
             filter = (r >= bins[i]) & (r < bins[i + 1])
+            filter[filter == False] = np.nan
             tmp = buf * filter
-            n[i] = np.sum(tmp > 0)
-            if n[i] == 0:
-                intensity[i] = np.nan
-                continue
-            sum = np.nansum(tmp)
-            intensity[i] = sum / n[i]
+            intensity[i] = np.nanmean(tmp)
 
-        return intensity, bins, n
+        return intensity, bins
