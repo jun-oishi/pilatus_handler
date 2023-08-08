@@ -1,7 +1,6 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import json
 from logging import getLogger as __getLogger
 from logging import StreamHandler as __StreamHandler
 from logging import Formatter as __Formatter

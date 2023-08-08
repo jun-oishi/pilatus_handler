@@ -3,3 +3,4 @@ tmp/*
 testdata/*
 __pycache__
 *.ipynb
+!test.ipynb

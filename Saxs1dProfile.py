@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 import util
+import constants as const
 import XafsData
 from typing import Callable
 from importlib import import_module
@@ -140,14 +141,14 @@ class DafsData(SaxsSeries):
     name : str
         sample name fetched from xafsfile
     i0 : np.ndarray
-        i0 at each file
-    xafsi : np.ndarray
-        normalized xafs intensity at each file (transparent by default)
+        intensity of incident beam at each energy
+    mu : np.ndarray
+        absorption coefficient at each energy [a.u.]
     energy : np.ndarray
         energy at each file
     r : np.ndarray (n,2)
     i : np.ndarray (n,2)
-        relative intensity (normalized by i0)
+        normalized intensity of scattered beam at each energy
     """
 
     def __init__(self, dir: str, xafsfile: str):
@@ -159,7 +160,7 @@ class DafsData(SaxsSeries):
         if self.xafsfile.energy.size != self.i.shape[0]:
             raise ValueError("inconsistent number of files. incorrect xafs file ?")
         self.i0: np.ndarray = self.xafsfile.data[:, 0]
-        self.xafsi = self.xafsfile.data[:, 1] / self.i0
+        self.mu = -np.log(self.xafsfile.data[:, 1] / self.i0)
         self.energy: np.ndarray = self.xafsfile.energy
         self.n_e: int = self.energy.size
         self.i = self.i / self.i0.reshape(-1, 1)
