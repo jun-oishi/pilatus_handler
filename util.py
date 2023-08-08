@@ -9,18 +9,15 @@ from logging import config as logging_config
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 import os
 
-# __LOG_CONFIG_FILE = "config/log_config.json"
-
-# with open(__LOG_CONFIG_FILE, "r") as f:
-#     logging_config.dictConfig(json.load(f))
-
 __FORMATTER = __Formatter(
     "%(name)s [%(levelname)s]: %(message)s from %(filename)s:%(lineno)d"
 )
 
+__DEFAULT_LEVEL = DEBUG
 
-def getLogger(name: str, level=WARNING):
-    logger = __getLogger(name)
+
+def getLogger(name: str, level=__DEFAULT_LEVEL):
+    logger = __getLogger(name=name)
     logger.setLevel(level)
     handler = __StreamHandler()
     handler.setLevel(level)

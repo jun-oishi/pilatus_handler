@@ -4,12 +4,31 @@ import re
 
 __version__ = "0.0.1"
 
+_logger = util.getLogger(__name__)
+
 
 def _split_by_spaces(line: str):
     return re.split(r" +", line.strip())
 
 
 class XafsData:
+    """XAFS data class
+    attributes
+    ----------
+    fileformat : str
+        file format of the data (now only 9809 is supported)
+    src : str
+        path to the data file
+    beamline : str
+    sampleinfo : str
+    ring : str
+    mono : str
+    param : list[str]
+    energy : np.ndarray
+    data : np.ndarray
+        2d array of the data (data[n_point, n_columns])
+    """
+
     def __init__(self, src: str, *, fileformat: str = "9809", cols: list[int] = []):
         if fileformat == "9809":
             self.fileformat = "9809"
@@ -37,16 +56,16 @@ class XafsData:
         else:
             raise ValueError(f"invalid file format: {src}\n  cannot find Block=...")
 
-        self.load_blocks([line.strip() for line in lines[9 : 9 + n_blocks]])
+        self.__load_blocks([line.strip() for line in lines[9 : 9 + n_blocks]])
         if self.energy.size != n_points:
             raise ValueError(
                 f"file may be damaged: {src}\n  energy.size:{self.energy.size} != n_points:{n_points}"
             )
 
         data_starts = 9 + n_blocks + 4
-        self.channels = _split_by_spaces(lines[data_starts - 1])
+        channels = _split_by_spaces(lines[data_starts - 1])
         if cols == []:
-            cols = list(range(len(self.channels)))
+            cols = list(range(len(channels)))
         self.data = np.loadtxt(src, skiprows=data_starts, usecols=cols)
 
         if self.data.shape[0] != n_points:
@@ -56,7 +75,7 @@ class XafsData:
 
         return
 
-    def load_blocks(self, lines: list[str]):
+    def __load_blocks(self, lines: list[str]):
         table = [_split_by_spaces(line) for line in lines]
         ls_energy = []
         for row in table:

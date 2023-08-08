@@ -9,7 +9,7 @@ import XafsData
 from typing import Callable
 from importlib import import_module
 
-__version__ = "0.0.4"
+__version__ = "0.0.7"
 
 
 _logger = util.getLogger(__name__, level=util.DEBUG)
@@ -141,10 +141,13 @@ class DafsData(SaxsSeries):
         sample name fetched from xafsfile
     i0 : np.ndarray
         i0 at each file
+    xafsi : np.ndarray
+        normalized xafs intensity at each file (transparent by default)
     energy : np.ndarray
         energy at each file
     r : np.ndarray (n,2)
-
+    i : np.ndarray (n,2)
+        relative intensity (normalized by i0)
     """
 
     def __init__(self, dir: str, xafsfile: str):
@@ -155,9 +158,11 @@ class DafsData(SaxsSeries):
         self.name = self.xafsfile.sampleinfo.split(" ")[0]
         if self.xafsfile.energy.size != self.i.shape[0]:
             raise ValueError("inconsistent number of files. incorrect xafs file ?")
-        self.i0: np.ndarray = self.xafsfile.data
+        self.i0: np.ndarray = self.xafsfile.data[:, 0]
+        self.xafsi = self.xafsfile.data[:, 1] / self.i0
         self.energy: np.ndarray = self.xafsfile.energy
         self.n_e: int = self.energy.size
+        self.i = self.i / self.i0.reshape(-1, 1)
 
     def loadStdinfo(self, relative_path):
         """load stdinfo and set q2r and r2q interpolator
@@ -201,11 +206,11 @@ class DafsData(SaxsSeries):
         self, ax: Axes, *, uselog: bool = False, y: np.ndarray = np.array([]), **kwargs
     ) -> Axes:
         ax = super().heatmap(
-            ax, uselog=uselog, y=self.energy, y_label="energy[keV]", **kwargs
+            ax, uselog=uselog, y=self.energy, y_label="energy[eV]", **kwargs
         )
         return ax
 
-    def q_slice(self, q: float = np.nan) -> np.ndarray:
+    def q_slice(self, q: float) -> np.ndarray:
         """fetch e-i from all files at given q[nm^-1]
         returns
         -------
@@ -221,3 +226,20 @@ class DafsData(SaxsSeries):
             else:
                 ret[i] = np.interp(self.q2r(q, e), self.r, self.i[i])
         return ret
+
+    def e_slice(self, e: float) -> np.ndarray:
+        """fetch q-i"""
+        if e < self.energy[0] or e > self.energy[-1]:
+            raise ValueError(f"e:{e} is out of range")
+        else:
+            idx = np.argmin(np.abs(self.energy - e))
+            if np.abs(self.energy[idx] - e) < 1e-3:
+                i = self.i[idx]
+            else:
+                i = np.array(
+                    [
+                        np.interp(e, self.energy, self.i[:, k])
+                        for k in range(self.r.size)
+                    ]
+                )
+        return i
