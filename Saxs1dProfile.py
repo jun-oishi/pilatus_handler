@@ -10,7 +10,7 @@ import XafsData
 from typing import Callable
 from importlib import import_module
 
-__version__ = "0.0.7"
+__version__ = "0.0.8"
 
 
 _logger = util.getLogger(__name__, level=util.DEBUG)
@@ -171,36 +171,17 @@ class DafsData(SaxsSeries):
         ---------
         relative_path : str
             path to stdinfo csv file from self.dir
-            the file should have 5 columns: e, m, b, r_bottom, r_top and 1 row header
+            the file should have 2 columns: e, m and 1 row header
         """
         path = os.path.join(self.dir, relative_path)
         stdinfo = np.loadtxt(path, delimiter=",", skiprows=1)
-        e: np.ndarray = stdinfo[:, 0]  # [keV]
-        m: np.ndarray = stdinfo[:, 1]  # [nm^-1/px]
-        b: np.ndarray = stdinfo[:, 2]  # [nm^-1]
-        # r->qでデータを作ることでデータ範囲外のqに対してnanを返すようにする
-        # XXX 原理的には係数mはeに反比例(?)するのでそれを使ったほうが良い(?)
-        r_botttom: np.ndarray = stdinfo[:, 3]
-        r_top: np.ndarray = stdinfo[:, 4]
-        n_r = 3
-        r = np.array(
-            [np.linspace(r_botttom[i], r_top[i], n_r) for i in range(e.size)]
-        ).flatten()
-        q = np.empty_like(r)
-        qe = np.empty((r.size, 2))
-        re = np.empty((r.size, 2))
-        for i in range(n_r):
-            for j in range(e.size):
-                ij = i * e.size + j
-                q[ij] = m[j] * r[ij] + b[j]  # [nm^-1]
-                qe[ij] = [q[ij], e[j]]
-                re[ij] = [r[ij], e[j]]
-
-        self.q2r = interpolate.LinearNDInterpolator(qe, r, fill_value=np.nan)
-        self.r2q = interpolate.LinearNDInterpolator(re, q, fill_value=np.nan)
-
+        arr_e: np.ndarray = stdinfo[:, 0]  # [eV]
+        arr_m: np.ndarray = stdinfo[:, 1]  # 線形回帰q=mrの係数[nm^-1/px]
+        # 係数mはeに比例するので最小二乗法で回帰
+        m = lambda e: e * (arr_e * arr_m).sum() / (arr_e**2).sum()
+        self.r2q = lambda r, e: m(e) * r
+        self.q2r = lambda q, e: q / m(e)
         self.with_stdinfo = True
-
         return
 
     def heatmap(
@@ -225,7 +206,9 @@ class DafsData(SaxsSeries):
             if np.isnan(r[i]):
                 ret[i] = np.nan
             else:
-                ret[i] = np.interp(self.q2r(q, e), self.r, self.i[i])
+                ret[i] = np.interp(
+                    self.q2r(q, e), self.r, self.i[i], left=np.nan, right=np.nan
+                )
         return ret
 
     def e_slice(self, e: float) -> np.ndarray:
