@@ -8,6 +8,8 @@ from logging import config as logging_config
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 import os
 
+__version__ = "0.0.1"
+
 __FORMATTER = __Formatter(
     "%(name)s [%(levelname)s]: %(message)s from %(filename)s:%(lineno)d"
 )
@@ -27,7 +29,7 @@ def getLogger(name: str, level=__DEFAULT_LEVEL):
     return logger
 
 
-def listFiles(dir: str, *, ext=".tif"):
+def listFiles(dir: str, *, ext=""):
     all = os.listdir(dir)
     files = list(filter(lambda x: x.endswith(ext), all))
     getNum = lambda s: int(s.split(".")[0].split("_")[-1])

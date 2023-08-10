@@ -5,12 +5,11 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 import util
-import constants as const
 import XafsData
 from typing import Callable
 from importlib import import_module
 
-__version__ = "0.0.8"
+__version__ = "0.0.12"
 
 
 _logger = util.getLogger(__name__, level=util.DEBUG)
@@ -51,6 +50,8 @@ class SaxsSeries:
         path to directory containing csv files
     with_stdinfo : bool
         true if q2r and r2q are set by loadStdinfo
+    data_loaded : bool
+        true if loadFiles has been called
     q2r : Callable
         q2r(q[nm^-1]) -> r[px]
     r2q : Callable
@@ -64,14 +65,7 @@ class SaxsSeries:
     def __init__(self, dir: str):
         self.dir = os.path.join(os.getcwd(), dir)
         self.with_stdinfo = False
-        filePaths = [
-            os.path.join(self.dir, name)
-            for name in util.listFiles(self.dir, ext=".csv")
-        ]
-        files = [Saxs1dProfile.load_csv(f) for f in filePaths]
-        self.r = files[0].r
-        self.i = np.array([f.i for f in files], dtype=float)
-        _logger.info(f"loaded {len(filePaths)} files from {self.dir}")
+        self.data_loaded = False
         return
 
     def loadStdinfo(self, relative_path):
@@ -80,6 +74,20 @@ class SaxsSeries:
         self.q2r: Callable = mod_std.q2r
         self.r2q: Callable = mod_std.r2q
         self.with_stdinfo = True
+        return
+
+    def loadFiles(self):
+        if self.data_loaded:
+            return
+        filePaths = [
+            os.path.join(self.dir, name)
+            for name in util.listFiles(self.dir, ext=".csv")
+        ]
+        files = [Saxs1dProfile.load_csv(f) for f in filePaths]
+        self.r = files[0].r
+        self.i = np.array([f.i for f in files], dtype=float)
+        _logger.info(f"loaded {len(filePaths)} files from {self.dir}")
+        self.data_loaded = True
         return
 
     def heatmap(
@@ -94,6 +102,7 @@ class SaxsSeries:
         show_colorbar: bool = False,
         set_q_axis: bool = False,
     ) -> Axes:
+        self.loadFiles()
         """plot heatmap of i[file, r] on given ax"""
         i = np.log(self.i) if uselog else self.i
         if y.size == 0:
@@ -151,19 +160,27 @@ class DafsData(SaxsSeries):
         normalized intensity of scattered beam at each energy
     """
 
-    def __init__(self, dir: str, xafsfile: str):
-        """load xafs file and fetch i0 and energy"""
+    def __init__(self, dir: str, xafsfile: str, *, xafscols=(3, 4)):
+        """load xafs file and fetch i0 and energy
+        arguments
+        ---------
+        dir : str
+            path to directory containing csv files
+        xafsfile : str
+            relative path to xafs file from dir
+        xafscols : tuple[int, int]
+            column numbers of i0 and i in xafs file
+        """
         super().__init__(dir)
         xafsfile = os.path.join(dir, xafsfile)
-        self.xafsfile = XafsData.XafsData(xafsfile, cols=[3, 4])
+        self.xafsfile = XafsData.XafsData(xafsfile, cols=xafscols)
         self.name = self.xafsfile.sampleinfo.split(" ")[0]
-        if self.xafsfile.energy.size != self.i.shape[0]:
+        if self.xafsfile.energy.size != len(util.listFiles(self.dir, ext=".csv")):
             raise ValueError("inconsistent number of files. incorrect xafs file ?")
         self.i0: np.ndarray = self.xafsfile.data[:, 0]
         self.mu = -np.log(self.xafsfile.data[:, 1] / self.i0)
         self.energy: np.ndarray = self.xafsfile.energy
         self.n_e: int = self.energy.size
-        self.i = self.i / self.i0.reshape(-1, 1)
 
     def loadStdinfo(self, relative_path):
         """load stdinfo and set q2r and r2q interpolator
@@ -174,7 +191,8 @@ class DafsData(SaxsSeries):
             the file should have 2 columns: e, m and 1 row header
         """
         path = os.path.join(self.dir, relative_path)
-        stdinfo = np.loadtxt(path, delimiter=",", skiprows=1)
+        stdinfo = np.loadtxt(path, delimiter=",", skiprows=1, usecols=(0, 1))
+        stdinfo = stdinfo.reshape(-1, 2)
         arr_e: np.ndarray = stdinfo[:, 0]  # [eV]
         arr_m: np.ndarray = stdinfo[:, 1]  # 線形回帰q=mrの係数[nm^-1/px]
         # 係数mはeに比例するので最小二乗法で回帰
@@ -184,9 +202,16 @@ class DafsData(SaxsSeries):
         self.with_stdinfo = True
         return
 
+    def loadFiles(self):
+        if self.data_loaded:
+            return
+        super().loadFiles()
+        self.i = self.i / self.i0.reshape(-1, 1)
+
     def heatmap(
         self, ax: Axes, *, uselog: bool = False, y: np.ndarray = np.array([]), **kwargs
     ) -> Axes:
+        self.loadFiles()
         ax = super().heatmap(
             ax, uselog=uselog, y=self.energy, y_label="energy[eV]", **kwargs
         )
@@ -197,8 +222,9 @@ class DafsData(SaxsSeries):
         returns
         -------
         i : np.ndarray
-            i[e,q] for all e in self.energy
+            1d array i[e,q] for all e in self.energy
         """
+        self.loadFiles()
         ret = np.empty_like(self.energy)
         arr_q = np.array(q).repeat(self.energy.size)
         r = self.q2r(arr_q, self.energy)
@@ -212,7 +238,13 @@ class DafsData(SaxsSeries):
         return ret
 
     def e_slice(self, e: float) -> np.ndarray:
-        """fetch q-i"""
+        """fetch q-i from all files at given e[eV]
+        returns
+        -------
+        i : np.ndarray
+            1d array i[q,e] for all q in self.q
+        """
+        self.loadFiles()
         if e < self.energy[0] or e > self.energy[-1]:
             raise ValueError(f"e:{e} is out of range")
         else:

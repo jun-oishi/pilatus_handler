@@ -2,5 +2,3 @@ tmp/*
 !tmp/.gitkeep
 testdata/*
 __pycache__
-*.ipynb
-!test.ipynb
