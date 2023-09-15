@@ -2,7 +2,7 @@ import numpy as np
 import util
 import re
 
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 
 _logger = util.getLogger(__name__)
 
@@ -25,11 +25,18 @@ class XafsData:
     mono : str
     param : list[str]
     energy : np.ndarray
-    data : np.ndarray
+    data : np.ndarray | dict[str, np.ndarray]
         2d array of the data (data[n_point, n_columns])
+        or dict of 1d array corresponding to each channel if dict `cols` is specified
     """
 
-    def __init__(self, src: str, *, fileformat: str = "9809", cols: list[int] = []):
+    def __init__(
+        self,
+        src: str,
+        *,
+        fileformat: str = "9809",
+        cols: list[int] | dict[int, str] = [],
+    ):
         if fileformat == "9809":
             self.fileformat = "9809"
             self.load_9809(src, cols=cols)
@@ -37,7 +44,7 @@ class XafsData:
             raise ValueError(f"invalid fileformat: {fileformat}")
         return
 
-    def load_9809(self, src: str, cols: list[int] = []):
+    def load_9809(self, src: str, cols: list[int] | dict[int, str] = []):
         with open(src, "r") as f:
             lines = f.readlines()
 
@@ -66,11 +73,20 @@ class XafsData:
         channels = _split_by_spaces(lines[data_starts - 1])
         if cols == []:
             cols = list(range(len(channels)))
-        self.data = np.loadtxt(src, skiprows=data_starts, usecols=cols)
+        if type(cols) == list:
+            self._data = np.loadtxt(src, skiprows=data_starts, usecols=cols)
+            self.data = self._data.view()
+        elif type(cols) == dict:
+            self._data = np.loadtxt(
+                src, skiprows=data_starts, usecols=list(cols.keys())
+            )
+            self.data = {
+                key: self._data[:, i].view() for i, key in enumerate(cols.values())
+            }
 
-        if self.data.shape[0] != n_points:
+        if self._data.shape[0] != n_points:
             raise ValueError(
-                f"file may be damaged: {src}\n  data.shape[1]:{self.data.shape[1]} != n_points:{n_points}"
+                f"file may be damaged: {src}\n  data.shape[1]:{self._data.shape[1]} != n_points:{n_points}"
             )
 
         return

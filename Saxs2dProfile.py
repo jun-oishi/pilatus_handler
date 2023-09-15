@@ -5,7 +5,7 @@ import cv2
 import os
 import util
 
-__version__ = "0.0.25"
+__version__ = "0.0.26"
 
 _logger = util.getLogger(__name__, level=util.WARNING)
 
@@ -108,6 +108,63 @@ class Saxs2dProfile:
         ret.__init__(cv2.imread(path, cv2.IMREAD_UNCHANGED)[::-1, :])
         _logger.debug(f"max: {ret.__raw.max()}, min: {ret.__raw.min()}")
         return ret
+
+    @classmethod
+    def to_csv(cls, src: str, center: tuple[float, float], *, dr=1.0):
+        """save radial average to csv file
+
+        Parameters
+        ----------
+        path: str
+            path to save
+        center: tuple[float,float]
+            center of circle
+        """
+        _self = cls.load_tiff(src)
+        _self.auto_mask_invalid()
+        _self.center = center
+        i, bins = _self.radial_average(dr=dr)
+        r = (bins[:-1] + bins[1:]) / 2
+        dist = src.replace(".tif", ".csv")
+        header = "\n".join(
+            [f"src: {src}", f"center: ({center[0]}, {center[1]})", "r[px],i"]
+        )
+        data = np.vstack([r, i]).T
+        np.savetxt(dist, data, delimiter=",", header=header, fmt="%.1f,%.10e")
+        return dist
+
+    @classmethod
+    def to_series_csv(cls, dir: str, center: tuple[float, float], *, dr=1.0):
+        files = util.listFiles(dir, ext=".tif")
+        bins = np.arange(0, 0)
+        intensity = np.empty((0, len(files)))
+        for i, src in enumerate(files):
+            _self = cls.load_tiff(os.path.join(dir, src))
+            _self.auto_mask_invalid()
+            _self.center = center
+            if i == 0:
+                _intensity, bins = _self.radial_average(dr=dr)
+                intensity = np.empty((len(_intensity), len(files)))
+                intensity[:, i] = _intensity
+            else:
+                intensity[:, i], _bins = _self.radial_average(bins=bins)
+
+        dist = dir + "_series.csv"
+        r = (bins[:-1] + bins[1:]) / 2
+        header = "\n".join(
+            [
+                f"src: {dir}",
+                f"center: ({center[0]}, {center[1]})",
+                "r[px]," + ",".join(files),
+            ]
+        )
+        np.savetxt(
+            dist,
+            np.hstack([r.reshape(-1, 1), intensity]),
+            delimiter=",",
+            header=header,
+            fmt="%.1f," + ",".join(["%.10e"] * len(files)),
+        )
 
     def values(
         self,

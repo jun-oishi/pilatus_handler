@@ -9,7 +9,7 @@ import XafsData
 from typing import Callable
 from importlib import import_module
 
-__version__ = "0.0.12"
+__version__ = "0.0.15"
 
 
 _logger = util.getLogger(__name__, level=util.DEBUG)
@@ -63,6 +63,7 @@ class SaxsSeries:
     """
 
     def __init__(self, dir: str):
+        # TODO single_file 対応
         self.dir = os.path.join(os.getcwd(), dir)
         self.with_stdinfo = False
         self.data_loaded = False
@@ -177,8 +178,8 @@ class DafsData(SaxsSeries):
         self.name = self.xafsfile.sampleinfo.split(" ")[0]
         if self.xafsfile.energy.size != len(util.listFiles(self.dir, ext=".csv")):
             raise ValueError("inconsistent number of files. incorrect xafs file ?")
-        self.i0: np.ndarray = self.xafsfile.data[:, 0]
-        self.mu = -np.log(self.xafsfile.data[:, 1] / self.i0)
+        self.i0: np.ndarray = self.xafsfile._data[:, 0]
+        self.mu = -np.log(self.xafsfile._data[:, 1] / self.i0)
         self.energy: np.ndarray = self.xafsfile.energy
         self.n_e: int = self.energy.size
 
@@ -194,11 +195,18 @@ class DafsData(SaxsSeries):
         stdinfo = np.loadtxt(path, delimiter=",", skiprows=1, usecols=(0, 1))
         stdinfo = stdinfo.reshape(-1, 2)
         arr_e: np.ndarray = stdinfo[:, 0]  # [eV]
-        arr_m: np.ndarray = stdinfo[:, 1]  # 線形回帰q=mrの係数[nm^-1/px]
-        # 係数mはeに比例するので最小二乗法で回帰
-        m = lambda e: e * (arr_e * arr_m).sum() / (arr_e**2).sum()
-        self.r2q = lambda r, e: m(e) * r
-        self.q2r = lambda q, e: q / m(e)
+        # arr_m: np.ndarray = stdinfo[:, 1]  # 線形回帰q=mrの係数[nm^-1/px]
+        arr_m: np.ndarray = stdinfo[:, 1]  # 線形回帰sin2θ=mrの係数[nm^-1/px]
+        # # 係数mはeに比例するので最小二乗法で回帰
+        # m = lambda e: e * (arr_e * arr_m).sum() / (arr_e**2).sum()
+        m = np.mean(arr_m)
+        hc = 1_240  # eV*nm : e = hc/lambda
+        fpi = 4 * np.pi
+        rt = np.sqrt
+        self.r2q = lambda r, e: (fpi * e / hc) * rt((1 - rt(1 - (r * m) ** 2)) / 2)
+        self.q2r = (
+            lambda q, e: rt(1 - (1 - 2 * q**2 * (fpi * e / hc) ** (-2)) ** 2) / m
+        )
         self.with_stdinfo = True
         return
 
