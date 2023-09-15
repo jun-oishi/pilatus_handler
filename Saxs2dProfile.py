@@ -7,8 +7,6 @@ import util
 
 __version__ = "0.0.25"
 
-_logger = util.getLogger(__name__, level=util.WARNING)
-
 
 _MASK_DTYPE = np.float32
 
@@ -44,7 +42,6 @@ class _Masks(np.ndarray):
 
     def append(self, new_mask: np.ndarray) -> None:
         """append mask"""
-        _logger.debug(f"append mask: shape={new_mask.shape} ,dtype={new_mask.dtype}")
         if new_mask.shape != self.shape:
             raise ValueError("invalid shape")
         toAppend = np.full_like(self, np.nan, dtype=_MASK_DTYPE)
@@ -72,12 +69,10 @@ class Saxs2dProfile:
         raise NotImplementedError(f"{cls} default initializer not implemented")
 
     def __init__(self, raw: np.ndarray):
-        _logger.debug(f"initializing Saxs2dProfile with raw:{id(raw):x}, {raw.shape}")
         self.__raw: np.ndarray = raw
         self.__buf: np.ndarray = np.zeros_like(raw)
         self.__masks: _Masks = _Masks(self.__raw)
         self.__center: tuple = (np.nan, np.nan)
-        _logger.debug(f"id(self.__raw): {id(self.__raw)}")
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -106,7 +101,6 @@ class Saxs2dProfile:
         if path[-4:] != ".tif":
             raise ValueError("invalid file type")
         ret.__init__(cv2.imread(path, cv2.IMREAD_UNCHANGED)[::-1, :])
-        _logger.debug(f"max: {ret.__raw.max()}, min: {ret.__raw.min()}")
         return ret
 
     def values(
@@ -273,7 +267,6 @@ class Saxs2dProfile:
         elif dtype == np.uint16:
             toCast = zero2one * ((1 << 16) - 1)
         else:
-            _logger.error(f"invalid dtype: {dtype}")
             raise ValueError("invalid dtype: only uint8 and uint16 are supported")
         toCast[toCast == np.nan] = setNanAs
         self.__buf = toCast.astype(dtype)
@@ -322,9 +315,8 @@ class Saxs2dProfile:
             maxRadius=0,
         )
         if circles is None:
-            _logger.info("no circle detected")
+            raise ValueError("no circle detected")
         else:
-            _logger.info(f"circle detected: {circles.shape}")
             self.__center = circles[0, 0, 1], circles[0, 0, 0]
 
         return self.center

@@ -12,9 +12,6 @@ from importlib import import_module
 __version__ = "0.0.12"
 
 
-_logger = util.getLogger(__name__, level=util.DEBUG)
-
-
 class Saxs1dProfile:
     def __init__(self, r: np.ndarray, i: np.ndarray):
         self.__r: np.ndarray = r
@@ -86,7 +83,6 @@ class SaxsSeries:
         files = [Saxs1dProfile.load_csv(f) for f in filePaths]
         self.r = files[0].r
         self.i = np.array([f.i for f in files], dtype=float)
-        _logger.info(f"loaded {len(filePaths)} files from {self.dir}")
         self.data_loaded = True
         return
 
