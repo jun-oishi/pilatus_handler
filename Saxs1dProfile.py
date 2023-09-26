@@ -255,3 +255,18 @@ class DafsData(SaxsSeries):
                     ]
                 )
         return i
+
+
+def saveHeatmap(dir, *, overwrite=False, title="", autointegrate=True):
+    """save heatmap of all files in dir"""
+    fig, ax = plt.subplots()
+    saxs = SaxsSeries(dir)
+    saxs.loadFiles()
+    saxs.heatmap(ax, show_colorbar=True)
+    if title == "":
+        title = os.path.basename(dir)
+    elif title == None:
+        title = ""
+    ax.set_title(title)
+    saxs.savefig(fig, dist=dir + ".png", overwrite=overwrite)
+    return
