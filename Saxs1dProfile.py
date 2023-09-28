@@ -12,9 +12,6 @@ from importlib import import_module
 __version__ = "0.0.15"
 
 
-_logger = util.getLogger(__name__, level=util.DEBUG)
-
-
 class Saxs1dProfile:
     def __init__(self, r: np.ndarray, i: np.ndarray):
         self.__r: np.ndarray = r
@@ -71,6 +68,7 @@ class SaxsSeries:
 
     def loadStdinfo(self, relative_path):
         path = os.path.join(self.dir, relative_path)
+        print(path)
         mod_std = import_module(path)
         self.q2r: Callable = mod_std.q2r
         self.r2q: Callable = mod_std.r2q
@@ -87,7 +85,6 @@ class SaxsSeries:
         files = [Saxs1dProfile.load_csv(f) for f in filePaths]
         self.r = files[0].r
         self.i = np.array([f.i for f in files], dtype=float)
-        _logger.info(f"loaded {len(filePaths)} files from {self.dir}")
         self.data_loaded = True
         return
 
@@ -267,3 +264,18 @@ class DafsData(SaxsSeries):
                     ]
                 )
         return i
+
+
+def saveHeatmap(dir, *, overwrite=False, title="", autointegrate=True):
+    """save heatmap of all files in dir"""
+    fig, ax = plt.subplots()
+    saxs = SaxsSeries(dir)
+    saxs.loadFiles()
+    saxs.heatmap(ax, show_colorbar=True)
+    if title == "":
+        title = os.path.basename(dir)
+    elif title == None:
+        title = ""
+    ax.set_title(title)
+    saxs.savefig(fig, dist=dir + ".png", overwrite=overwrite)
+    return

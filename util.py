@@ -29,7 +29,12 @@ def getLogger(name: str, level=__DEFAULT_LEVEL):
     return logger
 
 
-def listFiles(dir: str, *, ext=""):
+def listFiles(dir: str, *, ext="") -> list[str]:
+    """指定ディレクオリ直下のファイル名をソートして返す
+    'common_001.ext'のようなファイル名を想定してハイフン後の数字でソートする
+    extが指定されている場合はその拡張子のみを対象とする
+    返すのはファイル名のみでdirは含まない
+    """
     all = os.listdir(dir)
     files = list(filter(lambda x: x.endswith(ext), all))
     getNum = lambda s: int(s.split(".")[0].split("_")[-1])
