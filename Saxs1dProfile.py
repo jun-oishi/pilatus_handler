@@ -67,6 +67,7 @@ class SaxsSeries:
 
     def loadStdinfo(self, relative_path):
         path = os.path.join(self.dir, relative_path)
+        print(path)
         mod_std = import_module(path)
         self.q2r: Callable = mod_std.q2r
         self.r2q: Callable = mod_std.r2q
