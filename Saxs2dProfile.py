@@ -83,7 +83,7 @@ class Saxs2dProfile:
         return object.__new__(cls)
 
     @classmethod
-    def load_tiff(cls, path: str) -> "Saxs2dProfile":
+    def load_tiff(cls, path: str, flip="") -> "Saxs2dProfile":
         """load profile from tiff file
 
         Parameters
@@ -100,7 +100,12 @@ class Saxs2dProfile:
             raise FileNotFoundError("")
         if path[-4:] != ".tif":
             raise ValueError("invalid file type")
-        ret.__init__(cv2.imread(path, cv2.IMREAD_UNCHANGED)[::-1, :])
+        flipped = cv2.imread(path, cv2.IMREAD_UNCHANGED)[::-1, :]
+        if "h" in flip or "horizontal" in flip:
+            flipped = flipped[:, ::-1]
+        if "v" in flip or "vertical" in flip:
+            flipped = flipped[::-1, :]
+        ret.__init__(flipped)
         return ret
 
     @classmethod
@@ -207,6 +212,19 @@ class Saxs2dProfile:
             raise TypeError("center must be array-like of 2 floats")
 
         self.__center = (center[1], center[0])
+
+    def setTiltParam(self, phi, l, x0, y0):
+        """set parameters to calibrate tilt
+        arguments:
+            phi: tilt angle in deg
+            l: distance from sample to detector [px]
+            x0: x coordinate of center [px]
+            y0: y coordinate of center [px]
+        """
+        self.__phi = phi
+        self.__l = l
+        self.center = (x0, y0)
+        self.__tilt_calibrated = True
 
     def save(
         self,
@@ -435,6 +453,42 @@ class Saxs2dProfile:
         #     intensity[i] = np.nanmean(tmp)
 
         return intensity, bins
+
+    def __thetaGrid(self):
+        phi = np.deg2rad(self.__phi)
+        x = np.arange(self.__raw.shape[1]) - self.__center[1]
+        y = np.arange(self.__raw.shape[0]) - self.__center[0]
+        xx, yy = np.meshgrid(x, y)
+        t = np.sqrt((xx * np.cos(phi)) ** 2 + yy**2) / np.abs(
+            xx * np.sin(phi) - self.__l
+        )
+        return np.rad2deg(np.arctan(t))
+
+    def tiltCalibrate(
+        self, dtheta=2**-6, min_theta=0, max_theta=90, *, autotrim=True
+    ):
+        """calibrate tilt
+        keep longitudinal resolution and reset lateral axis to theta
+        assume beam center is left outside of image
+        """
+        theta = self.__thetaGrid()
+        if autotrim:
+            min_theta, max_theta = np.nanmin(theta), np.nanmax(theta)
+            arr_theta = np.arange(min_theta, max_theta, dtheta)
+        else:
+            arr_theta = np.arange(min_theta, max_theta + dtheta, dtheta)
+        height = self.__raw.shape[0]
+        width = len(arr_theta)
+        calibrated = np.empty((height, width), dtype=np.float32)
+        for y in range(height):
+            calibrated[y] = np.interp(
+                arr_theta,
+                theta[y],
+                self.__raw[y],
+                left=np.nan,
+                right=np.nan,
+            )
+        return calibrated, arr_theta
 
 
 def tif2chi(src, center, dr=1.0, *, overwrite=False) -> str:
