@@ -11,16 +11,58 @@ from importlib import import_module
 
 __version__ = "0.0.15"
 
+_EMPTY = np.array([])
+
 
 class Saxs1dProfile:
-    def __init__(self, r: np.ndarray, i: np.ndarray):
-        self.__r: np.ndarray = r
-        self.__i: np.ndarray = i
+    """
+    Attributes
+    ----------
+    _r : np.ndarray [px]
+    _i : np.ndarray
+    _theta : np.ndarray [deg]
+    _energy : float [eV]
+    _lambda : float [nm]
+    _q : np.ndarray [nm^-1]
+    m : float
+        slope of linear regression of q=mr
+    """
+
+    def __init__(
+        self, *, i: np.ndarray, r: np.ndarray = _EMPTY, theta: np.ndarray = _EMPTY
+    ):
+        self._r: np.ndarray = r
+        self._theta: np.ndarray = theta
+        self._i: np.ndarray = i
+        self._energy: float = np.nan
+        self._lambda: float = np.nan
+        self._q: np.ndarray = _EMPTY
+        self._m = np.nan
+        return
+
+    @property
+    def energy(self) -> float:
+        return self._energy
+
+    @energy.setter
+    def energy(self, e: float):
+        self._energy = e
+        self._lambda = 1_240 / e
+        return
+
+    @property
+    def lambda_(self) -> float:
+        return self._lambda
+
+    @lambda_.setter
+    def lambda_(self, l: float):
+        self._lambda = l
+        self._energy = 1_240 / l
         return
 
     @classmethod
     def load_csv(
-        cls, path: str, *, delimiter: str = ",", skiprows: int = 4
+        cls, path: str, *, delimiter: str = ",", skiprows: int = 4, axis="r"
     ) -> "Saxs1dProfile":
         try:
             table = np.loadtxt(path, delimiter=delimiter, skiprows=skiprows)
@@ -28,15 +70,23 @@ class Saxs1dProfile:
             table = np.loadtxt(
                 path, delimiter=delimiter, skiprows=skiprows, encoding="cp932"
             )
-        return cls(table[:, 0], table[:, 1])
+        if axis == "r":
+            return cls(r=table[:, 0], i=table[:, 1])
+        elif axis == "theta":
+            return cls(theta=table[:, 0], i=table[:, 1])
+        else:
+            raise ValueError("invalid axis")
 
-    @property
-    def r(self):
-        return self.__r
+    def convert(self):
+        if self._m != np.nan:
+            self._q = self._m * self._r
+        elif self._theta.size == self._i.size:
+            if self._lambda == np.nan:
+                raise ValueError("energy or lambda is not set")
+            d = self._lambda / (2 * np.sin(np.deg2rad(self._theta / 2)))
+            self._q = 2 * np.pi / d
 
-    @property
-    def i(self):
-        return self.__i
+        return self._q
 
 
 class SaxsSeries:
