@@ -5,7 +5,7 @@ import cv2
 import os
 import util
 
-__version__ = "0.0.26"
+__version__ = "0.1.0"
 
 
 GREEN = (0, 255, 0)  # BGR
@@ -33,7 +33,7 @@ class Saxs2dProfile:
     ----------
     _raw : np.ndarray
     _center : tuple[float, float]
-        (x, y) coordinate of beam center [px]
+        (x, y) coordinate of beam center in THIS ORDER [px]
     detector : str
         "pilatus" or "eiger"
     pixelSize : float [mm]
@@ -53,6 +53,10 @@ class Saxs2dProfile:
         elif detector == "eiger":
             self.detector = "eiger"
             self.pixelSize = 75e-3  # mm
+
+    @property
+    def raw(self) -> np.ndarray:
+        return self._raw
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -222,10 +226,10 @@ class TiltedSaxsImage(Saxs2dProfile):
 
     def __init__(self, raw: np.ndarray):
         super().__init__(raw)
-        self.phi = 0  # degree
-        self.cameraLength = np.nan  # px
-        self.__converted = np.array([])
-        self.__arr_theta_deg = np.array([])
+        self.phi: float = 0  # degree
+        self.cameraLength: float = np.nan  # px
+        self.__converted: np.ndarray = np.array([])
+        self.__arr_theta_deg: np.ndarray = np.array([])
 
     @classmethod
     def load_tiff(cls, path: str, flip="") -> "TiltedSaxsImage":
@@ -241,6 +245,11 @@ class TiltedSaxsImage(Saxs2dProfile):
             xx * np.sin(phi) - self.cameraLength
         )
         return np.rad2deg(np.arctan(t))
+
+    def copyCameraParam(self, other: "TiltedSaxsImage"):
+        self.phi, self.cameraLength = other.phi, other.cameraLength
+        self.center = (other.center[1], other.center[0])
+        return
 
     def convert2theta(
         self, dtheta=2**-6, min_theta=0, max_theta=90, *, autotrim=True

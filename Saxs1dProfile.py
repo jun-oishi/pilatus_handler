@@ -9,7 +9,7 @@ import XafsData
 from typing import Callable
 from importlib import import_module
 
-__version__ = "0.0.15"
+__version__ = "0.1.0"
 
 _EMPTY = np.array([])
 
@@ -34,21 +34,19 @@ class Saxs1dProfile:
         self._r: np.ndarray = r
         self._theta: np.ndarray = theta
         self._i: np.ndarray = i
-        self._energy: float = np.nan
-        self._lambda: float = np.nan
-        self._q: np.ndarray = _EMPTY
-        self._m = np.nan
         return
 
     @property
-    def energy(self) -> float:
-        return self._energy
+    def r(self) -> np.ndarray:
+        return self._r
 
-    @energy.setter
-    def energy(self, e: float):
-        self._energy = e
-        self._lambda = 1_240 / e
-        return
+    @property
+    def theta(self) -> np.ndarray:
+        return self._theta
+
+    @property
+    def i(self) -> np.ndarray:
+        return self._i
 
     @property
     def lambda_(self) -> float:
@@ -77,17 +75,6 @@ class Saxs1dProfile:
         else:
             raise ValueError("invalid axis")
 
-    def convert(self):
-        if self._m != np.nan:
-            self._q = self._m * self._r
-        elif self._theta.size == self._i.size:
-            if self._lambda == np.nan:
-                raise ValueError("energy or lambda is not set")
-            d = self._lambda / (2 * np.sin(np.deg2rad(self._theta / 2)))
-            self._q = 2 * np.pi / d
-
-        return self._q
-
 
 class SaxsSeries:
     """
@@ -95,98 +82,98 @@ class SaxsSeries:
     ----------
     dir : str
         path to directory containing csv files
-    with_stdinfo : bool
-        true if q2r and r2q are set by loadStdinfo
-    data_loaded : bool
-        true if loadFiles has been called
-    q2r : Callable
-        q2r(q[nm^-1]) -> r[px]
-    r2q : Callable
-        r2q(r[px]) -> q[nm^-1]
-    r : np.ndarray
+    _r : np.ndarray
         1d array of radial coordinate[px] of the data (common to all files)
-    i : np.ndarray
+    _i : np.ndarray
         2d array of intensity data (i[n_file, r.size])
     """
 
-    def __init__(self, dir: str):
-        # TODO single_file 対応
+    def __init__(self, dir: str, *, axis="r"):
         self.dir = os.path.join(os.getcwd(), dir)
-        self.with_stdinfo = False
-        self.data_loaded = False
-        return
 
-    def loadStdinfo(self, relative_path):
-        path = os.path.join(self.dir, relative_path)
-        print(path)
-        mod_std = import_module(path)
-        self.q2r: Callable = mod_std.q2r
-        self.r2q: Callable = mod_std.r2q
-        self.with_stdinfo = True
-        return
-
-    def loadFiles(self):
-        if self.data_loaded:
-            return
         filePaths = [
             os.path.join(self.dir, name)
             for name in util.listFiles(self.dir, ext=".csv")
         ]
-        files = [Saxs1dProfile.load_csv(f) for f in filePaths]
-        self.r = files[0].r
-        self.i = np.array([f.i for f in files], dtype=float)
-        self.data_loaded = True
+        files = [Saxs1dProfile.load_csv(f, axis=axis) for f in filePaths]
+        self._r, self._theta, self._q = _EMPTY, _EMPTY, _EMPTY
+        if axis == "r":
+            self._r = files[0]._r
+        elif axis == "theta":
+            self._theta = files[0]._theta
+        else:
+            raise ValueError("invalid axis")
+        self.axis = axis
+        self._i = np.array([f._i for f in files], dtype=float)
+        self._m = np.nan
         return
+
+    @property
+    def m(self) -> float:
+        return self._m
+
+    @m.setter
+    def m(self, m: float):
+        self._m = m
+        self._q = m * self.r
+        return
+
+    @property
+    def q(self) -> np.ndarray:
+        return self._q
+
+    @property
+    def r(self) -> np.ndarray:
+        return self._r
+
+    @property
+    def theta(self) -> np.ndarray:
+        return self._theta
+
+    @property
+    def i(self) -> np.ndarray:
+        return self._i
 
     def heatmap(
         self,
         ax: Axes,
         *,
         uselog: bool = True,
+        x_axis="",
         y: np.ndarray = np.array([]),
         y_label: str = "file number",
-        levels: int = 100,
+        levels: int = 128,
         cmap: str = "rainbow",
         show_colorbar: bool = False,
-        set_q_axis: bool = False,
     ) -> Axes:
-        self.loadFiles()
         """plot heatmap of i[file, r] on given ax"""
         i = np.log(self.i) if uselog else self.i
+
         if y.size == 0:
             y = np.arange(i.shape[0])
         elif y.size != i.shape[0]:
             raise ValueError("invalid y size")
-        contf = ax.contourf(self.r, y, i, levels=levels, cmap=cmap)
+
+        x_axis = x_axis if x_axis else self.axis
+        if x_axis == "r":
+            x = self.r
+            x_label = "r[px]"
+        elif x_axis == "theta":
+            x = self.theta
+            x_label = "2theta[deg]"
+        elif x_axis == "q":
+            x = self.q
+            x_label = "q[nm^-1]"
+        else:
+            raise ValueError("invalid x_axis")
+
+        contf = ax.contourf(x, y, i, levels=levels, cmap=cmap)
         if show_colorbar:
             cb_label = "ln(I)" if uselog else "I"
             plt.colorbar(contf).set_label(cb_label)
-        ax.set_xlabel("r[px]")
+        ax.set_xlabel(x_label)
         ax.set_ylabel(y_label)
-        if set_q_axis and self.with_stdinfo:
-            ax_d = ax.secondary_xaxis("top", functions=(self.r2q, self.q2r))
-            ax_d.set_xlabel("q[nm^-1]")
         return ax
-
-    def savefig(
-        self,
-        fig: Figure,
-        *,
-        dist: str = "",
-        overwrite: bool | None = None,
-        dpi: int = 300,
-    ) -> str | None:
-        """save figure"""
-        if dist == "":
-            dist = self.dir + ".png"
-        if os.path.exists(dist):
-            if overwrite is None:
-                overwrite = input(f"{dist} already exists. overwrite? (y/n)") == "y"
-            if not overwrite:
-                print("file name conflict. aborted.")
-                return None
-        fig.savefig(dist, dpi=dpi)
-        return dist
 
 
 class DafsData(SaxsSeries):
@@ -197,135 +184,124 @@ class DafsData(SaxsSeries):
         xafs file includes energy and i0 at each file
     name : str
         sample name fetched from xafsfile
-    i0 : np.ndarray
-        intensity of incident beam at each energy
-    mu : np.ndarray
+    _i0 : np.ndarray
+        intensity of incident beam at each energy [raw counts]
+    _mu : np.ndarray
         absorption coefficient at each energy [a.u.]
-    energy : np.ndarray
+    _fl : np.ndarray
+        fluorescence yield at each energy [raw counts / i0]
+    _energy : np.ndarray
         energy at each file
-    r : np.ndarray (n,2)
-    i : np.ndarray (n,2)
-        normalized intensity of scattered beam at each energy
+    _r : np.ndarray (n,2)
+    _i : np.ndarray (n,2)
+        normalized intensity of scattered beam at each energy [raw counts / i0]
     """
 
-    def __init__(self, dir: str, xafsfile: str, *, xafscols=(3, 4)):
+    def __init__(self, dir: str, xafsfile: str, *, xafscols=(3, 4, 5)):
         """load xafs file and fetch i0 and energy
         arguments
         ---------
         dir : str
             path to directory containing csv files
         xafsfile : str
-            relative path to xafs file from dir
+            relative path to xafs file from `dir`
         xafscols : tuple[int, int]
             column numbers of i0 and i in xafs file
         """
-        super().__init__(dir)
+        super().__init__(dir, axis="theta")
         xafsfile = os.path.join(dir, xafsfile)
         self.xafsfile = XafsData.XafsData(xafsfile, cols=xafscols)
         self.name = self.xafsfile.sampleinfo.split(" ")[0]
         if self.xafsfile.energy.size != len(util.listFiles(self.dir, ext=".csv")):
             raise ValueError("inconsistent number of files. incorrect xafs file ?")
-        self.i0: np.ndarray = self.xafsfile._data[:, 0]
-        self.mu = -np.log(self.xafsfile._data[:, 1] / self.i0)
-        self.energy: np.ndarray = self.xafsfile.energy
-        self.n_e: int = self.energy.size
+        self._i0: np.ndarray = self.xafsfile._data[:, 0]
+        self._mu = np.log(self._i0 / self.xafsfile._data[:, 1])
+        self._fl = self.xafsfile._data[:, 2] / self._i0
+        self._i = self._i / self._i0.reshape(-1, 1)
+        self._energy: np.ndarray = self.xafsfile.energy
+        self.n_e: int = self._energy.size
 
-    def loadStdinfo(self, relative_path):
-        """load stdinfo and set q2r and r2q interpolator
-        arguments
-        ---------
-        relative_path : str
-            path to stdinfo csv file from self.dir
-            the file should have 2 columns: e, m and 1 row header
-        """
-        path = os.path.join(self.dir, relative_path)
-        stdinfo = np.loadtxt(path, delimiter=",", skiprows=1, usecols=(0, 1))
-        stdinfo = stdinfo.reshape(-1, 2)
-        arr_e: np.ndarray = stdinfo[:, 0]  # [eV]
-        # arr_m: np.ndarray = stdinfo[:, 1]  # 線形回帰q=mrの係数[nm^-1/px]
-        arr_m: np.ndarray = stdinfo[:, 1]  # 線形回帰sin2θ=mrの係数[nm^-1/px]
-        # # 係数mはeに比例するので最小二乗法で回帰
-        # m = lambda e: e * (arr_e * arr_m).sum() / (arr_e**2).sum()
-        m = np.mean(arr_m)
-        hc = 1_240  # eV*nm : e = hc/lambda
-        fpi = 4 * np.pi
-        rt = np.sqrt
-        self.r2q = lambda r, e: (fpi * e / hc) * rt((1 - rt(1 - (r * m) ** 2)) / 2)
-        self.q2r = (
-            lambda q, e: rt(1 - (1 - 2 * q**2 * (fpi * e / hc) ** (-2)) ** 2) / m
-        )
-        self.with_stdinfo = True
-        return
+        _lambda = 1_240 / self._energy.reshape(-1, 1)
+        thetaGrid, lambdaGrid = np.meshgrid(self._theta, _lambda)
+        self._q = 4 * np.pi * np.sin(np.deg2rad(thetaGrid / 2)) / lambdaGrid
 
-    def loadFiles(self):
-        if self.data_loaded:
-            return
-        super().loadFiles()
-        self.i = self.i / self.i0.reshape(-1, 1)
+    @property
+    def i0(self) -> np.ndarray:
+        return self._i0
+
+    @property
+    def mu(self) -> np.ndarray:
+        return self._mu
+
+    @property
+    def fl(self) -> np.ndarray:
+        return self._fl
+
+    @property
+    def energy(self) -> np.ndarray:
+        return self._energy
+
+    @property
+    def q(self) -> np.ndarray:
+        return self._q
 
     def heatmap(
-        self, ax: Axes, *, uselog: bool = False, y: np.ndarray = np.array([]), **kwargs
+        self,
+        ax: Axes,
+        *,
+        uselog: bool = True,
+        levels: int = 128,
+        cmap: str = "rainbow",
+        show_colorbar: bool = False,
     ) -> Axes:
-        self.loadFiles()
-        ax = super().heatmap(
-            ax, uselog=uselog, y=self.energy, y_label="energy[eV]", **kwargs
+        return super().heatmap(
+            ax,
+            uselog=uselog,
+            x_axis="theta",
+            y=self.energy,
+            y_label="energy[eV]",
+            levels=levels,
+            cmap=cmap,
+            show_colorbar=show_colorbar,
         )
-        return ax
 
-    def q_slice(self, q: float) -> np.ndarray:
-        """fetch e-i from all files at given q[nm^-1]
-        returns
-        -------
-        i : np.ndarray
-            1d array i[e,q] for all e in self.energy
-        """
-        self.loadFiles()
-        ret = np.empty_like(self.energy)
-        arr_q = np.array(q).repeat(self.energy.size)
-        r = self.q2r(arr_q, self.energy)
-        for i, e in enumerate(self.energy):
-            if np.isnan(r[i]):
-                ret[i] = np.nan
-            else:
-                ret[i] = np.interp(
-                    self.q2r(q, e), self.r, self.i[i], left=np.nan, right=np.nan
-                )
-        return ret
+    def q_slice(self, q: float | np.ndarray) -> np.ndarray:
+        """fetch e-i from all files at given q[nm^-1]"""
+        arr = np.array(
+            [
+                np.interp(q, self.q[j, :], self.i[j, :], left=np.nan, right=np.nan)
+                for j in range(self.energy.size)
+            ]
+        )
+        return arr
 
-    def e_slice(self, e: float) -> np.ndarray:
-        """fetch q-i from all files at given e[eV]
-        returns
-        -------
-        i : np.ndarray
-            1d array i[q,e] for all q in self.q
-        """
-        self.loadFiles()
+    def e_slice(
+        self, e: float, axis="theta", strictE=False
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """fetch q, i from all files at given e[eV]"""
         if e < self.energy[0] or e > self.energy[-1]:
             raise ValueError(f"e:{e} is out of range")
         else:
             idx = np.argmin(np.abs(self.energy - e))
-            if np.abs(self.energy[idx] - e) < 1e-3:
-                i = self.i[idx]
-            else:
-                i = np.array(
-                    [
-                        np.interp(e, self.energy, self.i[:, k])
-                        for k in range(self.r.size)
-                    ]
-                )
-        return i
+            if strictE and np.abs(self.energy[idx] - e) > 1e-3:
+                raise ValueError(f"unlisted energy: {e}")
+            i = self.i[idx]
+
+        if axis == "theta":
+            return self.theta, i
+        else:
+            return self.q[idx], i
 
 
-def saveHeatmap(dir, *, overwrite=False, title="", autointegrate=True):
+def saveHeatmap(dir, *, overwrite=False, title=""):
     """save heatmap of all files in dir"""
     fig, ax = plt.subplots()
     saxs = SaxsSeries(dir)
-    saxs.loadFiles()
     saxs.heatmap(ax, show_colorbar=True)
     if title == "":
         title = os.path.basename(dir)
     elif title == None:
         title = ""
     ax.set_title(title)
-    saxs.savefig(fig, dist=dir + ".png", overwrite=overwrite)
+    fig.savefig(dir + ".png", overwrite=overwrite)
     return

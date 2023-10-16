@@ -73,16 +73,18 @@ class XafsData:
         channels = _split_by_spaces(lines[data_starts - 1])
         if cols == []:
             cols = list(range(len(channels)))
-        if type(cols) == list:
-            self._data = np.loadtxt(src, skiprows=data_starts, usecols=cols)
-            self.data = self._data.view()
-        elif type(cols) == dict:
+        if type(cols) == dict:
             self._data = np.loadtxt(
                 src, skiprows=data_starts, usecols=list(cols.keys())
             )
             self.data = {
                 key: self._data[:, i].view() for i, key in enumerate(cols.values())
             }
+        elif hasattr(cols, "__iter__") and type(cols[0]) == int:
+            self._data = np.loadtxt(src, skiprows=data_starts, usecols=cols)  # type: ignore
+            self.data = self._data.view()
+        else:
+            raise ValueError(f"invalid cols: {cols}")
 
         if self._data.shape[0] != n_points:
             raise ValueError(
