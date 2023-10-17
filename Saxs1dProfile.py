@@ -295,6 +295,9 @@ class DafsData(SaxsSeries):
 
 def saveHeatmap(dir, *, overwrite=False, title=""):
     """save heatmap of all files in dir"""
+    dist = dir + ".png"
+    if not overwrite and os.path.exists(dist):
+        raise FileExistsError(f"{dir}.png already exists")
     fig, ax = plt.subplots()
     saxs = SaxsSeries(dir)
     saxs.heatmap(ax, show_colorbar=True)
@@ -303,5 +306,5 @@ def saveHeatmap(dir, *, overwrite=False, title=""):
     elif title == None:
         title = ""
     ax.set_title(title)
-    fig.savefig(dir + ".png", overwrite=overwrite)
+    fig.savefig(dist, overwrite=overwrite)
     return

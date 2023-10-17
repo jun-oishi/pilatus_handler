@@ -79,7 +79,7 @@ class Saxs2dProfile:
             raise FileNotFoundError("")
         if path[-4:] != ".tif":
             raise ValueError("invalid file type")
-        flipped = cv2.imread(path, cv2.IMREAD_UNCHANGED)[::-1, :]
+        flipped = cv2.imread(path, cv2.IMREAD_UNCHANGED)
         if "h" in flip or "horizontal" in flip:
             flipped = flipped[:, ::-1]
         if "v" in flip or "vertical" in flip:
@@ -88,7 +88,7 @@ class Saxs2dProfile:
 
     @property
     def center(self) -> tuple[float, float]:
-        return self._center
+        return (self._center[1], self._center[0])
 
     @center.setter
     def center(self, center: tuple[float, float]):
@@ -222,6 +222,7 @@ class TiltedSaxsImage(Saxs2dProfile):
     center : tuple[float, float]
         (x, y) coordinate of beam center [px]
         methods assume x < 0 so that small x corresponds to small theta
+    e : float [eV]
     """
 
     def __init__(self, raw: np.ndarray):
@@ -241,14 +242,15 @@ class TiltedSaxsImage(Saxs2dProfile):
         x = np.arange(self._raw.shape[1]) - self._center[1]
         y = np.arange(self._raw.shape[0]) - self._center[0]
         xx, yy = np.meshgrid(x, y)
-        t = np.sqrt((xx * np.cos(phi)) ** 2 + yy**2) / np.abs(
-            xx * np.sin(phi) - self.cameraLength
+        t = np.sqrt(
+            ((xx * np.cos(phi)) ** 2 + yy**2)
+            / (xx * np.sin(phi) - self.cameraLength) ** 2
         )
         return np.rad2deg(np.arctan(t))
 
     def copyCameraParam(self, other: "TiltedSaxsImage"):
         self.phi, self.cameraLength = other.phi, other.cameraLength
-        self.center = (other.center[1], other.center[0])
+        self.center = other.center
         return
 
     def convert2theta(
@@ -285,12 +287,12 @@ class TiltedSaxsImage(Saxs2dProfile):
 
 
 def tif2chi(
-    src,
+    src: str,
     *,
-    center,
+    center=(np.nan, np.nan),
     cameraLength=np.nan,
-    phi=0,
-    kind,
+    phi=0.0,
+    kind: str,
     overwrite=False,
     suffix="",
     flip="",
@@ -332,12 +334,12 @@ def tif2chi(
 
 
 def seriesIntegrate(
-    dir,
+    dir: str,
     *,
-    center,
+    center=(np.nan, np.nan),
     cameraLength=np.nan,
-    phi=0,
-    kind,
+    phi=0.0,
+    kind: str,
     overwrite=False,
     heatmap=True,
     verbose=False,
