@@ -88,6 +88,7 @@ class Saxs2dProfile:
 
     @property
     def center(self) -> tuple[float, float]:
+        """center coordinate in (x,y) order"""
         return (self._center[1], self._center[0])
 
     @center.setter
@@ -211,11 +212,118 @@ class PatchedSaxsImage(Saxs2dProfile):
         return intensity, bins
 
 
+class TiltCameraCoordinate:
+    """tilt camera coordinate
+    Attributes
+    ----------
+    psi: float
+        tilt angle[rad]
+    l: float
+        camera length along z-axis
+    beamcenter: tuple[float, float]
+        beam center in camera coordinate
+    """
+
+    def __init__(self, psi: float, l: float, beamcenter):
+        self.psi, self.l, self.beamcenter = psi, l, beamcenter
+
+    def ellipseParam(self, theta, plane="camera"):
+        """returns ellipse parameters
+        Parameters
+        ----------
+        theta: float
+            theta angle[rad]
+        plane: str
+            if "xy", returns ellipse parameters in xy plane
+            if "camera", returns ellipse parameters in camera coordinate
+
+        Returns
+        -------
+        a: float
+            x axis length of ellipse
+        b: float
+            y axis length of ellipse
+        center: tuple[float, float]
+        """
+        psi, l = self.psi, self.l
+        s, t = np.tan(psi), np.tan(theta)
+        d = 1 - s**2 * t**2
+        a = l * t / d  # 楕円のxy平面投影のx軸方向の長さ
+        b = l * t / np.sqrt(d)  # 楕円のxy平面投影のy軸方向の長さ
+        x0 = -s * t**2 * l / d  # 楕円のxy平面投影の中心座標
+        if plane == "xy":
+            # xy平面への投影の楕円のパラメタ
+            center = (x0, 0)
+            return a, b, center
+        elif plane == "camera":
+            center = (x0 / np.cos(psi) + self.beamcenter[0], self.beamcenter[1])
+            return a / np.cos(psi), b, center
+        else:
+            raise ValueError("plane must be 'xy' or 'camera'")
+
+    def xy(self, theta, phi) -> np.ndarray:
+        """returns x, y coordinate in camera coordinate
+        Parameters
+        ----------
+        theta: float or array-like [rad]
+        phi: float or array-like [rad]
+        """
+        if hasattr(phi, "__len__"):
+            if hasattr(theta, "__len__"):
+                return np.array([self.xy(t, p) for t, p in zip(theta, phi)])
+            else:
+                return np.array([self.xy(theta, p) for p in phi])
+        if hasattr(theta, "__len__"):
+            return np.array([self.xy(t, phi) for t in theta])
+
+        psi, l = self.psi, self.l
+        s, t = np.tan(psi), np.tan(theta)
+        # 直接x(投影)を求める
+        roots = np.roots(
+            [
+                1 + np.tan(phi) ** 2 - s**2 * t**2,
+                2 * l * s * t**2,
+                -(l**2) * t**2,
+            ]
+        )
+        x = np.max(roots) if np.cos(phi) > 0 else np.min(roots)
+        # 楕円の方程式からyを求める
+        a, b, center = self.ellipseParam(theta, plane="xy")
+        x0 = center[0]
+        y = b * np.sqrt(1 - (x - x0) ** 2 / a**2)
+        y = y if np.sin(phi) > 0 else -y
+        # カメラ座標系に変換して返す
+        return np.array([x / np.cos(psi) + self.beamcenter[0], y + self.beamcenter[1]])
+
+    def sph(self, X, Y) -> np.ndarray:
+        """returns theta, phi coordinate in spherical coordinate
+        Parameters
+        ----------
+        X: float or array-like
+        Y: float or array-like
+            coordinate in camera coordinate
+        """
+        if hasattr(X, "__len__"):
+            if hasattr(Y, "__len__"):
+                return np.array([self.sph(x, y) for x, y in zip(X, Y)])
+            else:
+                return np.array([self.sph(x, Y) for x in X])
+        if hasattr(Y, "__len__"):
+            return np.array([self.sph(X, y) for y in Y])
+        psi, l = self.psi, self.l
+        # カメラ座標系をxy平面に投影
+        x = (X - self.beamcenter[0]) * np.cos(self.psi)
+        y = Y - self.beamcenter[1]
+        theta = np.arctan2(np.sqrt(x**2 + y**2), l - x * np.tan(psi))
+        phi = np.arctan2(y, x)
+        return np.array([theta, phi])
+
+
 class TiltedSaxsImage(Saxs2dProfile):
     """
     Attributes
     ----------
-    phi : float
+    psi : float
         tilt angle of detector [deg]
     cameraLength : float [px]
         camera length measured along beam direction [px]
@@ -227,7 +335,7 @@ class TiltedSaxsImage(Saxs2dProfile):
 
     def __init__(self, raw: np.ndarray):
         super().__init__(raw)
-        self.phi: float = 0  # degree
+        self.psi: float = 0  # degree
         self.cameraLength: float = np.nan  # px
         self.__converted: np.ndarray = np.array([])
         self.__arr_theta_deg: np.ndarray = np.array([])
@@ -238,18 +346,19 @@ class TiltedSaxsImage(Saxs2dProfile):
 
     def __thetaGrid(self):
         """return theta grid for each pixel in degree"""
-        phi = np.deg2rad(self.phi)
-        x = np.arange(self._raw.shape[1]) - self._center[1]
-        y = np.arange(self._raw.shape[0]) - self._center[0]
-        xx, yy = np.meshgrid(x, y)
-        t = np.sqrt(
-            ((xx * np.cos(phi)) ** 2 + yy**2)
-            / (xx * np.sin(phi) - self.cameraLength) ** 2
+        coord = TiltCameraCoordinate(
+            np.deg2rad(self.psi), self.cameraLength, self.center
         )
-        return np.rad2deg(np.arctan(t))
+        sph = np.array(
+            [
+                [coord.sph(x, y) for x in range(self._raw.shape[1])]
+                for y in range(self._raw.shape[0])
+            ]
+        )
+        return np.rad2deg(sph[:, :, 0])
 
     def copyCameraParam(self, other: "TiltedSaxsImage"):
-        self.phi, self.cameraLength = other.phi, other.cameraLength
+        self.psi, self.cameraLength = other.psi, other.cameraLength
         self.center = other.center
         return
 
@@ -273,7 +382,7 @@ class TiltedSaxsImage(Saxs2dProfile):
             ],
             dtype=np.float32,
         )
-        converted = converted / np.cos(np.deg2rad(arr_theta - self.phi))
+        converted = converted / np.cos(np.deg2rad(arr_theta - self.psi))
         self.__converted = converted
         self.__arr_theta_deg = arr_theta
         return converted, arr_theta
@@ -291,7 +400,7 @@ def tif2chi(
     *,
     center=(np.nan, np.nan),
     cameraLength=np.nan,
-    phi=0.0,
+    psi=0.0,
     kind: str,
     overwrite=False,
     suffix="",
@@ -307,9 +416,9 @@ def tif2chi(
     if kind == "tilted":
         profile = TiltedSaxsImage.load_tiff(src, flip=flip)
         profile.center = center
-        profile.phi, profile.cameraLength = phi, cameraLength
+        profile.psi, profile.cameraLength = psi, cameraLength
         i, x = profile.radial_average()
-        param = f'param,"cener=({center[0]}, {center[1]})", cameraLength={cameraLength}px, phi={phi}deg'
+        param = f'param,"cener=({center[0]}, {center[1]})", cameraLength={cameraLength}px, psi={psi}deg'
         labels = "theta[deg],i"
     elif kind == "patched":
         profile = PatchedSaxsImage.load_tiff(src)
@@ -338,7 +447,7 @@ def seriesIntegrate(
     *,
     center=(np.nan, np.nan),
     cameraLength=np.nan,
-    phi=0.0,
+    psi=0.0,
     kind: str,
     overwrite=False,
     heatmap=True,
@@ -360,7 +469,7 @@ def seriesIntegrate(
                     src,
                     kind=kind,
                     center=center,
-                    phi=phi,
+                    psi=psi,
                     cameraLength=cameraLength,
                     overwrite=overwrite,
                     suffix=suffix,
