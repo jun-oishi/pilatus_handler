@@ -140,9 +140,11 @@ class SaxsSeries:
         *,
         uselog: bool = True,
         x_axis="",
+        x_lim=(np.nan, np.nan),
         y: np.ndarray = np.array([]),
         y_label: str = "file number",
-        levels: int = 128,
+        y_lim=(np.nan, np.nan),
+        levels: int | np.ndarray = 128,
         cmap: str = "rainbow",
         show_colorbar: bool = False,
     ) -> Axes:
@@ -167,7 +169,25 @@ class SaxsSeries:
         else:
             raise ValueError("invalid x_axis")
 
+        if not np.isnan(x_lim[0]):
+            ini = np.searchsorted(x, x_lim[0])
+            i = i[:, ini:]
+            x = x[ini:]
+        if not np.isnan(x_lim[1]):
+            fin = np.searchsorted(x, x_lim[1])
+            x = x[:fin]
+            i = i[:, :fin]
+        if not np.isnan(y_lim[0]):
+            ini = np.searchsorted(y, y_lim[0])
+            y = y[ini:]
+            i = i[ini:, :]
+        if not np.isnan(y_lim[1]):
+            fin = np.searchsorted(y, y_lim[1])
+            y = y[:fin]
+            i = i[:fin, :]
+
         contf = ax.contourf(x, y, i, levels=levels, cmap=cmap)
+
         if show_colorbar:
             cb_label = "ln(I)" if uselog else "I"
             plt.colorbar(contf).set_label(cb_label)
