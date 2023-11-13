@@ -1,5 +1,6 @@
 numpy >= 1.25, < 2
-opencv-python >= 4.8, < 5
+opencv-python-headless >= 4.8, < 5
 matplotlib >= 3.7, < 4
 PySimpleGUI >= 4.60, < 5
 scipy >= 1.0, < 2.0
+pyqt >= 5.15, < 6

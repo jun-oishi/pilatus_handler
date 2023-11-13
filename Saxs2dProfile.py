@@ -4,6 +4,14 @@ import numpy as np
 import cv2
 import os
 import util
+from matplotlib import pyplot as plt
+from matplotlib.widgets import Slider, Button
+import matplotlib
+from datetime import datetime
+from time import sleep
+from typing import overload
+
+matplotlib.use("Qt5Agg")
 
 __version__ = "0.1.0"
 
@@ -24,6 +32,17 @@ def _compress(raw: np.ndarray, dtype=np.uint8, *, min=None, max=None) -> np.ndar
         return (zero2one * ((1 << 16) - 1)).astype(dtype)
     else:
         raise ValueError("invalid dtype: only uint8 and uint16 are supported")
+
+
+def _ellipse(
+    img: np.ndarray,
+    center: tuple[float, float],
+    axes: tuple[float, float],
+    tilt: float = 0,
+    color: int = 255,
+    thickness: int = 1,
+) -> np.ndarray:
+    return cv2.ellipse(img, (center, axes, tilt), color, thickness)  # type: ignore
 
 
 class Saxs2dProfile:
@@ -221,11 +240,20 @@ class TiltCameraCoordinate:
     l: float
         camera length along z-axis
     beamcenter: tuple[float, float]
-        beam center in camera coordinate
+        beam center in camera coordinate (x, y)
     """
 
     def __init__(self, psi: float, l: float, beamcenter):
-        self.psi, self.l, self.beamcenter = psi, l, beamcenter
+        """
+        Parameters
+        ----------
+        psi: float [rad]
+        l : float [px]
+        beamcenter : tuple[float, float] [px]
+        """
+        self.psi = psi  # rad
+        self.l = l  # px
+        self.beamcenter = beamcenter  # px
 
     def ellipseParam(self, theta, plane="camera"):
         """returns ellipse parameters
@@ -318,6 +346,42 @@ class TiltCameraCoordinate:
         phi = np.arctan2(y, x)
         return np.array([theta, phi])
 
+    def drawPeak(
+        self, canvas: np.ndarray, theta: float, value: int = 255, thickness: int = 1
+    ) -> np.ndarray:
+        """
+        Parameters
+        ----------
+        canvas: np.ndarray
+        theta: float [rad]
+        value: int
+            color value to draw peak
+        thickness: int
+        """
+        a, b, ellippse_center = self.ellipseParam(theta, plane="camera")
+        return _ellipse(canvas, ellippse_center, (2 * a, 2 * b), 0, value, thickness)
+
+    def drawPeaks(
+        self,
+        canvas: np.ndarray,
+        thetas: np.ndarray,
+        value: int = 255,
+        thickness: int = 1,
+    ) -> np.ndarray:
+        """
+        Parameters
+        ----------
+        canvas: np.ndarray
+        thetas: float [rad]
+        value: int
+            color value to draw peak
+        thickness: int
+        """
+        ret = canvas.copy()
+        for theta in thetas:
+            ret = self.drawPeak(ret, theta, value, thickness)
+        return ret
+
 
 class TiltedSaxsImage(Saxs2dProfile):
     """
@@ -393,6 +457,186 @@ class TiltedSaxsImage(Saxs2dProfile):
         if self.__arr_theta_deg.size == 0:
             self.convert2theta(dtheta, min_theta, max_theta, autotrim=autotrim)
         return np.nanmean(self.__converted, axis=0), self.__arr_theta_deg
+
+
+class DeterminCameraParam:
+    """カメラパラメタをインタラクティブに決定するクラス
+    Attronibutes
+    ------------
+        __raw (np.ndarray) : 画像データ
+        energy (float) : X線のエネルギー [eV]
+        ini_values (dict) : 初期値
+        min_values (dict) : スライダの最小値
+        max_values (dict) : スライダの最大値
+    """
+
+    def __init__(self, src: str, *, energy: float, flip=""):
+        """
+        Parameters
+        ----------
+        src : str
+            path to tiff file
+        energy : float
+            energy of x-ray [eV]
+        flip : str
+            "h" or "horizontal" to flip image horizontally
+        """
+        self.__raw = _compress(cv2.imread(src, cv2.IMREAD_UNCHANGED), np.uint8)
+        if "h" in flip or "horizontal" in flip:
+            self.__raw = self.__raw[:, ::-1]
+
+        self.energy = energy  # eV
+
+        self.ini_values = {
+            "cameraLength": 5300,
+            "psi": 30.0,
+            "center_x": -300.0,
+            "center_y": 85.0,
+        }
+
+        self.min_values = {
+            "cameraLength": 3500,
+            "psi": 10.0,
+            "center_x": -500.0,
+            "center_y": 70.0,
+        }
+
+        self.max_values = {
+            "cameraLength": 5500,
+            "psi": 40.0,
+            "center_x": -100.0,
+            "center_y": 120.0,
+        }
+
+    @overload
+    def __q2theta(self, q: np.ndarray) -> np.ndarray:
+        ...
+
+    @overload
+    def __q2theta(self, q: float) -> float:
+        ...
+
+    def __q2theta(self, q):
+        """散乱ベクトルq[nm^-1]から散乱角2theta[rad]を計算する
+
+        Parameters
+        ----------
+        q : float | np.ndarray
+
+        Returns
+        -------
+        float | np.ndarray
+        """
+        return 2 * np.arcsin(q * (1_240 / self.energy) / (4 * np.pi))
+
+    def run(self, q: np.ndarray | str, imgpath: str = "") -> TiltCameraCoordinate:
+        """インタラクティブにカメラパラメタを決定する
+        TODO : 操作を終了しなくても(グラフは表示されたまま)処理が流れてしまう
+
+        Parameters
+        ----------
+        q : np.ndarray | str
+            描画するピークのq値[nm^-1]の配列または"agbeh"
+        imgpath : str, optional
+            空文字列以外が与えられれば終了時にそのパスに画像を保存する, by default ""
+
+        Returns
+        -------
+        TiltCameraCoordinate
+            決定したパラメタを持つTiltCameraCoordinateオブジェクト
+
+        Raises
+        ------
+        ValueError
+            qが"agbeh"以外の文字列の場合
+        """
+        base = np.zeros((400, 1000), dtype=np.uint8)
+        im_height, im_width = self.__raw.shape
+        x_shift, y_shift = 500, 200 - im_height // 2
+        base[y_shift : y_shift + im_height, 500 : 500 + im_width] = self.__raw
+
+        if isinstance(q, str):
+            if q == "agbeh":
+                q = np.array([3.22, 4.27, 5.37, 6.48, 7.57, 8.61, 9.67])
+            else:
+                raise ValueError(f"invalid q specifier: {q}")
+
+        arr_theta = self.__q2theta(q)
+        coord = TiltCameraCoordinate(
+            np.deg2rad(self.ini_values["psi"]),
+            self.ini_values["cameraLength"],
+            (self.ini_values["center_x"], self.ini_values["center_y"]),
+        )
+        fig, ax = plt.subplots(figsize=(10, 6))
+        fig.subplots_adjust(bottom=0.2)
+
+        im = base.copy()
+        im = coord.drawPeaks(im, arr_theta)
+
+        ax.imshow(im, cmap="jet")
+
+        ax_l = fig.add_axes((0.1, 0.16, 0.7, 0.03))
+        l_slider = Slider(
+            ax=ax_l,
+            label="l[px]",
+            valmin=self.min_values["cameraLength"],
+            valmax=self.max_values["cameraLength"],
+            valinit=self.ini_values["cameraLength"],
+        )
+        ax_psi = fig.add_axes((0.1, 0.13, 0.7, 0.03))
+        psi_slider = Slider(
+            ax=ax_psi,
+            label="psi[deg]",
+            valmin=self.min_values["psi"],
+            valmax=self.max_values["psi"],
+            valinit=self.ini_values["psi"],
+        )
+
+        ax_x0 = fig.add_axes((0.1, 0.10, 0.7, 0.03))
+        x0_slider = Slider(
+            ax=ax_x0,
+            label="x0[px]",
+            valmin=self.min_values["center_x"],
+            valmax=self.max_values["center_x"],
+            valinit=self.ini_values["center_x"],
+        )
+
+        ax_y0 = fig.add_axes((0.1, 0.07, 0.7, 0.03))
+        y0_slider = Slider(
+            ax=ax_y0,
+            label="y0[px]",
+            valmin=self.min_values["center_y"],
+            valmax=self.max_values["center_y"],
+            valinit=self.ini_values["center_y"],
+        )
+
+        ax_save = fig.add_axes((0.8, 0.02, 0.1, 0.03))
+        save_button = Button(ax_save, "Save")
+
+        def update(val):
+            coord.beamcenter = (x0_slider.val + x_shift, y0_slider.val + y_shift)
+            coord.l = l_slider.val
+            coord.psi = np.deg2rad(psi_slider.val)
+            im = base.copy()
+            im = coord.drawPeaks(im, arr_theta)
+            ax.imshow(im, cmap="jet")
+
+        def save(event):
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+            fig.savefig(f"ipynb/{timestamp}.png", dpi=300)
+
+        l_slider.on_changed(update)
+        psi_slider.on_changed(update)
+        x0_slider.on_changed(update)
+        y0_slider.on_changed(update)
+        save_button.on_clicked(save)
+
+        fig.show()
+
+        if imgpath:
+            fig.savefig(imgpath, dpi=300)
+
+        return coord
 
 
 def tif2chi(
