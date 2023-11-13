@@ -29,10 +29,16 @@ class Saxs1dProfile:
     """
 
     def __init__(
-        self, *, i: np.ndarray, r: np.ndarray = _EMPTY, theta: np.ndarray = _EMPTY
+        self,
+        *,
+        i: np.ndarray,
+        r: np.ndarray = _EMPTY,
+        theta: np.ndarray = _EMPTY,
+        q: np.ndarray = _EMPTY,
     ):
         self._r: np.ndarray = r
         self._theta: np.ndarray = theta
+        self._q: np.ndarray = q
         self._i: np.ndarray = i
         return
 
@@ -43,6 +49,10 @@ class Saxs1dProfile:
     @property
     def theta(self) -> np.ndarray:
         return self._theta
+
+    @property
+    def q(self) -> np.ndarray:
+        return self._q
 
     @property
     def i(self) -> np.ndarray:
@@ -60,8 +70,11 @@ class Saxs1dProfile:
 
     @classmethod
     def load_csv(
-        cls, path: str, *, delimiter: str = ",", skiprows: int = 4, axis="r"
+        cls, path: str, *, delimiter: str | None = None, skiprows: int = 4, axis="r"
     ) -> "Saxs1dProfile":
+        if delimiter == None:
+            if path.endswith(".csv"):
+                delimiter = ","
         try:
             table = np.loadtxt(path, delimiter=delimiter, skiprows=skiprows)
         except:
@@ -72,6 +85,8 @@ class Saxs1dProfile:
             return cls(r=table[:, 0], i=table[:, 1])
         elif axis == "theta":
             return cls(theta=table[:, 0], i=table[:, 1])
+        elif axis == "q":
+            return cls(q=table[:, 0], i=table[:, 1])
         else:
             raise ValueError("invalid axis")
 
@@ -88,12 +103,11 @@ class SaxsSeries:
         2d array of intensity data (i[n_file, r.size])
     """
 
-    def __init__(self, dir: str, *, axis="r"):
+    def __init__(self, dir: str, *, axis="r", ext=".csv"):
         self.dir = os.path.join(os.getcwd(), dir)
 
         filePaths = [
-            os.path.join(self.dir, name)
-            for name in util.listFiles(self.dir, ext=".csv")
+            os.path.join(self.dir, name) for name in util.listFiles(self.dir, ext=ext)
         ]
         files = [Saxs1dProfile.load_csv(f, axis=axis) for f in filePaths]
         self._r, self._theta, self._q = _EMPTY, _EMPTY, _EMPTY
@@ -101,6 +115,8 @@ class SaxsSeries:
             self._r = files[0]._r
         elif axis == "theta":
             self._theta = files[0]._theta
+        elif axis == "q":
+            self._q = files[0]._q
         else:
             raise ValueError("invalid axis")
         self.axis = axis
@@ -313,18 +329,53 @@ class DafsData(SaxsSeries):
             return self.q[idx], i
 
 
-def saveHeatmap(dir, *, overwrite=False, title=""):
-    """save heatmap of all files in dir"""
+def saveHeatmap(
+    dir,
+    *,
+    overwrite=False,
+    title="",
+    load_axis="r",
+    save_axis="r",
+    ext=".csv",
+    x_lim=(np.nan, np.nan),
+) -> tuple[Figure, Axes]:
+    """ヒートマップをpngで保存する
+
+    Parameters
+    ----------
+    dir : str
+        一次元プロファイルのファイルが入ったディレクトリ
+    overwrite : bool, optional
+        Trueならファイルを上書きする, by default False
+    title : str, optional
+        グラフのタイトル、未指定ならdirの最下層をそのまま使う, by default ""
+    load_axis : str, optional
+        "q" or "r", by default "r"
+    save_axis : str, optional
+        "q" or "r", by default "r"
+    ext : str, optional
+        拡張子 .csvなら区切り文字を`,`として、それ以外ならスペースとして読み込む, by default ".csv"
+
+    Returns
+    -------
+    tuple[Figure, Axes]
+        生成したFigure, Axes
+
+    Raises
+    ------
+    FileExistsError
+        _description_
+    """
     dist = dir + ".png"
     if not overwrite and os.path.exists(dist):
         raise FileExistsError(f"{dir}.png already exists")
     fig, ax = plt.subplots()
-    saxs = SaxsSeries(dir)
-    saxs.heatmap(ax, show_colorbar=True)
+    saxs = SaxsSeries(dir, axis=load_axis, ext=ext)
+    saxs.heatmap(ax, show_colorbar=True, x_axis=save_axis, x_lim=x_lim)
     if title == "":
         title = os.path.basename(dir)
     elif title == None:
         title = ""
     ax.set_title(title)
-    fig.savefig(dist, overwrite=overwrite)
-    return
+    fig.savefig(dist)
+    return fig, ax
