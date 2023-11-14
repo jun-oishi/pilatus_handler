@@ -4,3 +4,4 @@ matplotlib >= 3.7, < 4
 PySimpleGUI >= 4.60, < 5
 scipy >= 1.0, < 2.0
 pyqt >= 5.15, < 6
+tqdm >= 4.66, < 5

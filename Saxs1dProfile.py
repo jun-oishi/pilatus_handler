@@ -165,7 +165,7 @@ class SaxsSeries:
         show_colorbar: bool = False,
     ) -> Axes:
         """plot heatmap of i[file, r] on given ax"""
-        i = np.log(self.i) if uselog else self.i
+        i = np.log(self.i + 1e-10 * np.nanmin(self.i)) if uselog else self.i
 
         if y.size == 0:
             y = np.arange(i.shape[0])

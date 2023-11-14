@@ -8,8 +8,8 @@ from matplotlib import pyplot as plt
 from matplotlib.widgets import Slider, Button
 import matplotlib
 from datetime import datetime
-from time import sleep
 from typing import overload
+import tqdm
 
 matplotlib.use("Qt5Agg")
 
@@ -17,6 +17,8 @@ __version__ = "0.1.0"
 
 
 GREEN = (0, 255, 0)  # BGR
+
+_EMPTY = np.array([])
 
 
 def _compress(raw: np.ndarray, dtype=np.uint8, *, min=None, max=None) -> np.ndarray:
@@ -45,33 +47,100 @@ def _ellipse(
     return cv2.ellipse(img, (center, axes, tilt), color, thickness)  # type: ignore
 
 
+UNKNOWN_DETECTOR = None
+PILATUS = None
+EIGER = None
+
+
+class _Detector:
+    """検出器を表現するクラス
+    基本的にシングルトンで使う
+
+    Attributes
+    ----------
+    name : str
+    pixelSize : float [mm]
+    """
+
+    def __new__(cls):
+        super().__new__(cls)
+        cls.__name: str = ""
+        cls.__pixelSize: float = np.nan
+        return cls
+
+    def __init__(self):
+        raise NotImplementedError("cannot intstantiate")
+
+    @classmethod
+    def unknown(cls) -> "_Detector":
+        if UNKNOWN_DETECTOR is not None:
+            return UNKNOWN_DETECTOR
+        obj = cls()
+        obj.__name = "unknown"
+        obj.__pixelSize = np.nan  # mm
+        return obj
+
+    @classmethod
+    def Pilutus(cls) -> "_Detector":
+        if PILATUS is not None:
+            return PILATUS
+        obj = cls()
+        obj.__name = "pilatus"
+        obj.__pixelSize = 172e-3  # mm
+        return obj
+
+    @classmethod
+    def Eiger(cls) -> "_Detector":
+        if EIGER is not None:
+            return EIGER
+        obj = cls()
+        obj.__name = "eiger"
+        obj.__pixelSize = 75e-3  # mm
+        return obj
+
+    @property
+    def name(self) -> str:
+        return self.__name
+
+    @property
+    def pixelSize(self) -> float:
+        return self.__pixelSize
+
+
+UNKNOWN_DETECTOR: _Detector = _Detector.unknown()
+PILATUS: _Detector = _Detector.Pilutus()
+EIGER: _Detector = _Detector.Eiger()
+
+
 class Saxs2dProfile:
     """SAXS 2D profile class
 
     attributes
     ----------
     _raw : np.ndarray
-    _center : tuple[float, float]
+    center : tuple[float, float]
         (x, y) coordinate of beam center in THIS ORDER [px]
-    detector : str
-        "pilatus" or "eiger"
-    pixelSize : float [mm]
-        pixel size of detector, set by setDetector
+    detector : _Detector
+    pixelSize : float [mm/px]
     """
 
     DEFAULT_MARK_COLOR = GREEN
 
     def __init__(self, raw: np.ndarray):
         self._raw: np.ndarray = raw
-        self._center: tuple[float, float] = (np.nan, np.nan)
+        self.__center: tuple[float, float] = (np.nan, np.nan)
+        self._mask: np.ndarray = np.ones_like(raw, dtype=bool)
+        self._detector: _Detector = UNKNOWN_DETECTOR
 
     def setDetector(self, detector: str):
         if detector == "pilatus":
-            self.detector = "pilatus"
-            self.pixelSize = 172e-3  # mm
+            self._detector = PILATUS
         elif detector == "eiger":
-            self.detector = "eiger"
-            self.pixelSize = 75e-3  # mm
+            self._detector = EIGER
+
+    @property
+    def pixelSize(self) -> float:
+        return self._detector.pixelSize
 
     @property
     def raw(self) -> np.ndarray:
@@ -80,6 +149,14 @@ class Saxs2dProfile:
     @property
     def shape(self) -> tuple[int, int]:
         return self._raw.shape  # type: ignore
+
+    @property
+    def width(self) -> int:
+        return self._raw.shape[1]
+
+    @property
+    def height(self) -> int:
+        return self._raw.shape[0]
 
     @classmethod
     def load_tiff(cls, path: str, flip=""):
@@ -108,7 +185,7 @@ class Saxs2dProfile:
     @property
     def center(self) -> tuple[float, float]:
         """center coordinate in (x,y) order"""
-        return (self._center[1], self._center[0])
+        return (self.__center[1], self.__center[0])
 
     @center.setter
     def center(self, center: tuple[float, float]):
@@ -119,37 +196,38 @@ class Saxs2dProfile:
         except TypeError:
             raise TypeError("center must be array-like of 2 floats")
 
-        self._center = (center[1], center[0])
+        self.__center = (center[1], center[0])
+
+    def clearMask(self) -> None:
+        """clear mask"""
+        self._mask = np.ones_like(self._raw, dtype=bool)
+        return
+
+    def thresholdMask(self, thresh=2) -> None:
+        """閾値でマスクを作成する
+
+        Parameters
+        ----------
+        thresh : int, optional
+            画素値がこの値(を含まず)より小さい画素を無視するマスクをかける, by default 2
+        """
+        self._mask = self._mask * (self._raw >= thresh)
+        return
 
 
 class PatchedSaxsImage(Saxs2dProfile):
-    """
-    attributes
-    ----------
-    __mask : np.ndarray of bool
-    cameraLength : float [mm]
-    """
-
     def __init__(self, raw: np.ndarray):
         super().__init__(raw)
-        self.__mask = np.zeros_like(raw, dtype=bool)
         self.cameraLength = np.nan  # mm
 
     @classmethod
     def load_tiff(cls, path: str, flip="") -> "PatchedSaxsImage":
         return super().load_tiff(path, flip)
 
-    def auto_mask_invalid(self, thresh=2) -> None:
-        """add mask for invalid pixels to self.__masks
-        for data from pilatus sensor, negative values means invalid pixels
-        """
-        self.__mask = self.__mask | (self._raw < thresh)
-        return
-
     def detect_center(self) -> tuple[float, float]:
-        """detect center and set to self._center
+        """detect center and set to self.__center
         detect center by cv2.HoughCircles
-        if no circle is detected, no error raised and self._center is not updated
+        if no circle is detected, no error raised and self.__center is not updated
 
         Returns
         -------
@@ -178,9 +256,7 @@ class PatchedSaxsImage(Saxs2dProfile):
 
         return self.center
 
-    def radial_average(
-        self, *, axis: str = "r", dtheta: float = 2**-6
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def radial_average(self) -> tuple[np.ndarray, np.ndarray]:
         """compute radial average
 
         Parameters
@@ -200,28 +276,21 @@ class PatchedSaxsImage(Saxs2dProfile):
         """
         buf = self._raw.copy()
 
-        dx = np.ones_like(buf) * np.arange(buf.shape[1]) - self._center[1]
-        dy = (
-            np.ones_like(buf) * np.arange(buf.shape[0]).reshape(-1, 1) - self._center[0]
-        )
+        # dx = np.ones_like(buf) * np.arange(buf.shape[1]) - self._center[1]
+        # dy = (
+        #     np.ones_like(buf) * np.arange(buf.shape[0]).reshape(-1, 1) - self._center[0]
+        # )
+        dx = np.arange(self.width) - self.center[0]
+        dy = np.arange(self.height) - self.center[1]
+        dx, dy = np.meshgrid(dx, dy)
         r = np.sqrt(dx**2 + dy**2)
 
-        if axis == "r":
-            dr = 1
-            r_min = int(np.floor(np.min(r)))
-            r_max = int(np.ceil(np.max(r)))
-        elif axis == "theta":
-            if self.cameraLength is np.nan:
-                raise ValueError("cameraLength must be specified")
-            dr = dtheta
-            r = np.rad2deg(np.arctan(r / (self.cameraLength / self.pixelSize)))
-            r_min = 0
-            r_max = np.max(r)
-        else:
-            raise ValueError("invalid axis")
+        dr = 1
+        r_min = int(np.floor(np.min(r)))
+        r_max = int(np.ceil(np.max(r)))
 
         bins = np.arange(r_min, r_max + dr, dr)
-        buf = buf * self.__mask
+        buf = buf * self._mask.astype(buf.dtype)
 
         intensity = np.empty(bins.size - 1)
         cnt = np.histogram(r, bins=bins)[0]
@@ -229,6 +298,23 @@ class PatchedSaxsImage(Saxs2dProfile):
         intensity = sum / cnt
 
         return intensity, bins
+
+    def r2theta(self, r: np.ndarray) -> np.ndarray:
+        """ビームセンターからの距離[px]を散乱角2θ[deg]に変換する
+
+        Parameters
+        ----------
+        r : np.ndarray
+            px
+
+        Returns
+        -------
+        np.ndarray
+            2θ[deg]
+        """
+        if np.isnan(self.pixelSize) or np.isnan(self.cameraLength):
+            raise ValueError("detector parameters not set")
+        return np.rad2deg(np.arcsin(r * self.pixelSize / self.cameraLength))
 
 
 class TiltCameraCoordinate:
@@ -645,12 +731,46 @@ def tif2chi(
     center=(np.nan, np.nan),
     cameraLength=np.nan,
     psi=0.0,
-    kind: str,
+    kind: str = "patched",
     overwrite=False,
     suffix="",
     flip="",
 ) -> str:
-    """二次元散乱プロファイルのtifファイルをintegrateしてcsvに保存する"""
+    """tifファイルを読み込んで動径積分を行い、csvファイルに保存する
+
+    Parameters
+    ----------
+    src : str
+        tifファイルのパス
+    kind : str
+        tilted or patched
+    center : tuple, optional
+        ビームセンターの座標(x[px],y[px]), by default (np.nan, np.nan)
+    cameraLength : float, optional
+        カメラ長[px], kind=tiltedの場合のみ, by default np.nan
+    psi : float, optional
+        カメラ平面の傾き, kind=tiltedの場合のみ, by default 0.0
+    overwrite : bool, optional
+        Trueなら同名のファイルがあっても上書きする, by default False
+    suffix : str, optional
+        書き出しファイル名は<元ファイル名(拡張子抜き)>_<suffix>.csvにする, by default ""
+    flip : str, optional
+        "h"か"horizontal"なら画像を左右反転して読み込む(kind=tiltedの場合のみ), by default ""
+
+    Returns
+    -------
+    str
+        書き出したファイルのパス
+
+    Raises
+    ------
+    FileNotFoundError
+        srcのファイルが見つからない場合
+    FileExistsError
+        overwrite=Falseかつ書き出し先のファイルが既に存在する場合
+    ValueError
+        kindが不正な場合
+    """
     if not os.path.isfile(src):
         raise FileNotFoundError(f"{src} not found")
     dist = src.replace(".tif", suffix + ".csv")
@@ -666,17 +786,11 @@ def tif2chi(
         labels = "theta[deg],i"
     elif kind == "patched":
         profile = PatchedSaxsImage.load_tiff(src)
-        profile.auto_mask_invalid()
+        profile.thresholdMask()
         profile.center = center
-        axis = "x"
         param = f"param,center=({center[0]}, {center[1]})"
         labels = "r[px],i"
-        if cameraLength is not np.nan:
-            profile.cameraLength = cameraLength
-            axis = "theta"
-            param = param + f", cameraLength={cameraLength}mm"
-            labels = "theta[deg],i"
-        i, x = profile.radial_average(axis=axis)
+        i, x = profile.radial_average()
         x = (x[:-1] + x[1:]) / 2
     else:
         raise ValueError("invalid type")
@@ -692,23 +806,55 @@ def seriesIntegrate(
     center=(np.nan, np.nan),
     cameraLength=np.nan,
     psi=0.0,
-    kind: str,
+    kind: str = "patched",
     overwrite=False,
     heatmap=True,
     verbose=False,
     suffix="",
     flip="",
 ):
-    """指定ディレクトリ内のtifファイルをintegrateしてcsvに保存する"""
+    """指定ディレクトリ内のtifファイルを読み込んで動径積分を行い、csvファイルに保存する
+
+    Parameters
+    ----------
+    dir : str
+        ディレクトリへのパス
+    kind : str
+        tilted or patched
+    center : tuple
+        ビームセンターの座標(x[px],y[px]), by default (np.nan, np.nan)
+    cameraLength : _type_, optional
+        カメラ長[px], by default np.nan
+    psi : float, optional
+        カメラ平面の傾き, by default 0.0
+    overwrite : bool, optional
+        Trueなら同名のファイルを無視して上書き, by default False
+    heatmap : bool, optional
+        Trueなら全ファイル積分後ヒートマップを作成する, by default True
+    verbose : bool, optional
+        Trueなら処理したファイル名を逐一printする, by default False
+    suffix : str, optional
+        ファイル名の接尾辞, by default ""
+    flip : str, optional
+        "h"か"horizontal"なら左右反転する, by default ""
+
+    Raises
+    ------
+    FileNotFoundError
+        dirのパスが存在しない場合
+    ValueError
+        kindが不正な場合
+    """
     no_error = True
     if not os.path.isdir(dir):
         raise FileNotFoundError(f"{dir} not found")
     files = util.listFiles(dir, ext=".tif")
     print(f"{len(files)} file found")
+    bar = tqdm.tqdm(total=len(files), disable=verbose)
     for i, file in enumerate(files):
         src = os.path.join(dir, file)
         try:
-            if kind == "tilted":
+            if kind in ("tilted", "patched"):
                 dist = tif2chi(
                     src,
                     kind=kind,
@@ -719,22 +865,13 @@ def seriesIntegrate(
                     suffix=suffix,
                     flip=flip,
                 )
-            elif kind == "patched":
-                dist = tif2chi(
-                    src,
-                    kind=kind,
-                    center=center,
-                    cameraLength=cameraLength,
-                    overwrite=overwrite,
-                    suffix=suffix,
-                )
             else:
                 raise ValueError("invalid type")
 
             if verbose:
                 print(f"{src} => {dist}")
             else:
-                print("#", end="" if (i + 1) % 40 else "\n", flush=True)
+                bar.update(1)
         except FileExistsError as e:
             print(f"\n{src} skipped because csv file already exists")
             no_error = False
