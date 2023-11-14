@@ -338,6 +338,7 @@ def saveHeatmap(
     save_axis="r",
     ext=".csv",
     x_lim=(np.nan, np.nan),
+    logscale: bool = True,
 ) -> tuple[Figure, Axes]:
     """ヒートマップをpngで保存する
 
@@ -371,7 +372,7 @@ def saveHeatmap(
         raise FileExistsError(f"{dir}.png already exists")
     fig, ax = plt.subplots()
     saxs = SaxsSeries(dir, axis=load_axis, ext=ext)
-    saxs.heatmap(ax, show_colorbar=True, x_axis=save_axis, x_lim=x_lim)
+    saxs.heatmap(ax, show_colorbar=True, x_axis=save_axis, x_lim=x_lim, uselog=logscale)
     if title == "":
         title = os.path.basename(dir)
     elif title == None:
