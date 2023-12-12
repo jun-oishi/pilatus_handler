@@ -70,23 +70,25 @@ class Saxs1dProfile:
 
     @classmethod
     def load_csv(
-        cls, path: str, *, delimiter: str | None = None, skiprows: int = 4, axis="r"
+        # cls, path: str, *, delimiter: str | None = None, skiprows: int = 4, axis="r"
+        cls,
+        path: str,
+        axis="r",
+        check_header: bool = True,
     ) -> "Saxs1dProfile":
-        if delimiter == None:
-            if path.endswith(".csv"):
-                delimiter = ","
-        try:
-            table = np.loadtxt(path, delimiter=delimiter, skiprows=skiprows)
-        except:
-            table = np.loadtxt(
-                path, delimiter=delimiter, skiprows=skiprows, encoding="cp932"
-            )
+        csv = util.loadCsv(path, usecols=(0, 1))
         if axis == "r":
-            return cls(r=table[:, 0], i=table[:, 1])
+            if check_header and "r" not in csv.header[0]:
+                raise ValueError("axis not matched")
+            return cls(r=csv.data[:, 0], i=csv.data[:, 1])
         elif axis == "theta":
-            return cls(theta=table[:, 0], i=table[:, 1])
+            if check_header and "theta" not in csv.header[0]:
+                raise ValueError("axis not matched")
+            return cls(theta=csv.data[:, 0], i=csv.data[:, 1])
         elif axis == "q":
-            return cls(q=table[:, 0], i=table[:, 1])
+            if check_header and ("q" not in csv.header[0] or "Q" not in csv.header[0]):
+                raise ValueError("axis not matched")
+            return cls(q=csv.data[:, 0], i=csv.data[:, 1])
         else:
             raise ValueError("invalid axis")
 
@@ -110,7 +112,7 @@ class SaxsSeries:
             os.path.join(self.dir, name) for name in util.listFiles(self.dir, ext=ext)
         ]
         files = [Saxs1dProfile.load_csv(f, axis=axis) for f in filePaths]
-        self._r, self._theta, self._q = _EMPTY, _EMPTY, _EMPTY
+        self._r, self._theta = _EMPTY, _EMPTY
         if axis == "r":
             self._r = files[0]._r
         elif axis == "theta":
@@ -122,6 +124,7 @@ class SaxsSeries:
         self.axis = axis
         self._i = np.array([f._i for f in files], dtype=float)
         self._m = np.nan
+        self._b = 0
         return
 
     @property
@@ -131,12 +134,20 @@ class SaxsSeries:
     @m.setter
     def m(self, m: float):
         self._m = m
-        self._q = m * self.r
+        return
+
+    @property
+    def b(self) -> float:
+        return self._b
+
+    @b.setter
+    def b(self, b: float):
+        self._b = b
         return
 
     @property
     def q(self) -> np.ndarray:
-        return self._q
+        return self.r * self.m + self.b
 
     @property
     def r(self) -> np.ndarray:
@@ -163,8 +174,44 @@ class SaxsSeries:
         levels: int | np.ndarray = 128,
         cmap: str = "rainbow",
         show_colorbar: bool = False,
+        extend="neither",
     ) -> Axes:
-        """plot heatmap of i[file, r] on given ax"""
+        """plot heatmap of intensity on given axis
+
+        Parameters
+        ----------
+        ax : Axes
+            axes to plot
+        uselog : bool, optional
+            use log scale to plot, by default True
+        x_axis : str, optional
+            x axis, by default self.axes used
+        x_lim : tuple, optional
+            minimum and maximam value of x axis, by default (np.nan, np.nan)
+        y : np.ndarray, optional
+            y axis values, by default file number used
+        y_label : str, optional
+            label for y axis, by default "file number"
+        y_lim : tuple, optional
+            minimum and maximam value of y axis, by default (np.nan, np.nan)
+        levels : int | np.ndarray, optional
+            color levels: see matplotlib document, by default 128
+        cmap : str, optional
+            color map specifier; see matplotlib documents, by default "rainbow"
+        show_colorbar : bool, optional
+            show colorbar if True, by default False
+        extend : str, optional
+            whether fill overrange-value region or not: see matplotlib documents, by default "neither"
+
+        Returns
+        -------
+        Axes
+            axes plotted
+
+        Raises
+        ------
+        ValueError
+        """
         i = np.log(self.i + 1e-10 * np.nanmin(self.i)) if uselog else self.i
 
         if y.size == 0:
@@ -175,13 +222,13 @@ class SaxsSeries:
         x_axis = x_axis if x_axis else self.axis
         if x_axis == "r":
             x = self.r
-            x_label = "r[px]"
+            x_label = "$r\;[\mathrm{px}]$"
         elif x_axis == "theta":
             x = self.theta
-            x_label = "2theta[deg]"
+            x_label = "$2\theta\;[degree]$"
         elif x_axis == "q":
             x = self.q
-            x_label = "q[nm^-1]"
+            x_label = "$q\;[\mathrm{nm}^{-1}]$"
         else:
             raise ValueError("invalid x_axis")
 
@@ -202,7 +249,7 @@ class SaxsSeries:
             y = y[:fin]
             i = i[:fin, :]
 
-        contf = ax.contourf(x, y, i, levels=levels, cmap=cmap)
+        contf = ax.contourf(x, y, i, levels=levels, cmap=cmap, extend=extend)
 
         if show_colorbar:
             cb_label = "ln(I)" if uselog else "I"
