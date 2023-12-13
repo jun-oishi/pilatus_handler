@@ -1,17 +1,18 @@
 import numpy as np
-from scipy import interpolate
 import os
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
+from matplotlib.colors import Colormap
 import util
 import XafsData
-from typing import Callable
-from importlib import import_module
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 _EMPTY = np.array([])
+
+plt.rcParams["font.family"] = "DejaVu Serif"
+plt.rcParams["mathtext.fontset"] = "dejavuserif"
 
 
 class Saxs1dProfile:
@@ -163,56 +164,63 @@ class SaxsSeries:
 
     def heatmap(
         self,
+        fig: Figure,
         ax: Axes,
         *,
-        uselog: bool = True,
+        logscale: bool = True,
         x_axis="",
         x_lim=(np.nan, np.nan),
-        y: np.ndarray = np.array([]),
+        y: np.ndarray = _EMPTY,
         y_label: str = "file number",
         y_lim=(np.nan, np.nan),
-        levels: int | np.ndarray = 128,
-        cmap: str = "rainbow",
+        n_levels: int = 128,
+        vmin=np.nan,
+        vmax=np.nan,
+        cmap: str | Colormap = "jet",
         show_colorbar: bool = False,
-        extend="neither",
-    ) -> Axes:
-        """plot heatmap of intensity on given axis
+        extend: str = "min",
+        cbar_fraction: float = 0.01,
+        cbar_pad: float = 0.07,
+    ) -> None:
+        """ヒートマップを描画する
 
         Parameters
         ----------
+        fig : Figure
         ax : Axes
-            axes to plot
-        uselog : bool, optional
-            use log scale to plot, by default True
+        logscale : bool, optional
+            Trueなら自然対数をとって色付けする, by default True
         x_axis : str, optional
-            x axis, by default self.axes used
+            x軸, by default ""
         x_lim : tuple, optional
-            minimum and maximam value of x axis, by default (np.nan, np.nan)
+            x軸の範囲, by default (np.nan, np.nan)
         y : np.ndarray, optional
-            y axis values, by default file number used
+            y軸の値, by default _EMPTY
         y_label : str, optional
-            label for y axis, by default "file number"
+            y軸のラベル, by default "file number"
         y_lim : tuple, optional
-            minimum and maximam value of y axis, by default (np.nan, np.nan)
-        levels : int | np.ndarray, optional
-            color levels: see matplotlib document, by default 128
-        cmap : str, optional
-            color map specifier; see matplotlib documents, by default "rainbow"
-        show_colorbar : bool, optional
-            show colorbar if True, by default False
+            y軸の範囲, by default (np.nan, np.nan)
+        n_levels : int, optional
+            色分けの数, by default 128
+        vmin : float, optional
+            色分け範囲の最小値, by default np.nan
+        vmax : float, optional
+            色分け範囲の最大値, by default np.nan
+        cmap : str | Colormap, optional
+            カラーマップ, by default "jet"
+        show_colorbar : bool, optional, by default False
         extend : str, optional
-            whether fill overrange-value region or not: see matplotlib documents, by default "neither"
-
-        Returns
-        -------
-        Axes
-            axes plotted
+            範囲外の値の色塗り, by default "min"
+        cbar_fraction : float, optional
+            カラーバーの幅(figに対する分率), by default 0.01
+        cbar_pad : float, optional
+            カラーバーの余白, by default 0.07
 
         Raises
         ------
         ValueError
         """
-        i = np.log(self.i + 1e-10 * np.nanmin(self.i)) if uselog else self.i
+        i = self.i.copy()
 
         if y.size == 0:
             y = np.arange(i.shape[0])
@@ -249,14 +257,33 @@ class SaxsSeries:
             y = y[:fin]
             i = i[:fin, :]
 
-        contf = ax.contourf(x, y, i, levels=levels, cmap=cmap, extend=extend)
+        if logscale:
+            i[i <= 0] = np.nanmin(i[i > 0])
+            i = np.log(i)
+
+        vmin = np.nanmin(i) if np.isnan(vmin) else vmin
+        vmax = np.nanmax(i) if np.isnan(vmax) else vmax
+        levels = np.linspace(vmin, vmax, n_levels)
+
+        cs = ax.contourf(x, y, i, levels=levels, cmap=cmap, extend=extend)
 
         if show_colorbar:
-            cb_label = "ln(I)" if uselog else "I"
-            plt.colorbar(contf).set_label(cb_label)
+            cbar = fig.colorbar(
+                cs,
+                ax=ax,
+                orientation="horizontal",
+                location="bottom",
+                pad=cbar_pad,
+                fraction=cbar_fraction,
+                aspect=1 / cbar_fraction,
+            )
+            if logscale:
+                cbar.set_label("$\ln[I(q)]\;[a.u.]$")
+            else:
+                cbar.set_label("$I(q)\;[a.u.]$")
         ax.set_xlabel(x_label)
         ax.set_ylabel(y_label)
-        return ax
+        return
 
 
 class DafsData(SaxsSeries):
@@ -330,20 +357,22 @@ class DafsData(SaxsSeries):
 
     def heatmap(
         self,
+        fig: Figure,
         ax: Axes,
         *,
-        uselog: bool = True,
-        levels: int = 128,
+        logscale: bool = True,
+        n_levels: int = 128,
         cmap: str = "rainbow",
         show_colorbar: bool = False,
-    ) -> Axes:
-        return super().heatmap(
+    ) -> None:
+        super().heatmap(
+            fig,
             ax,
-            uselog=uselog,
+            logscale=logscale,
             x_axis="theta",
             y=self.energy,
             y_label="energy[eV]",
-            levels=levels,
+            n_levels=n_levels,
             cmap=cmap,
             show_colorbar=show_colorbar,
         )
@@ -419,7 +448,9 @@ def saveHeatmap(
         raise FileExistsError(f"{dir}.png already exists")
     fig, ax = plt.subplots()
     saxs = SaxsSeries(dir, axis=load_axis, ext=ext)
-    saxs.heatmap(ax, show_colorbar=True, x_axis=save_axis, x_lim=x_lim, uselog=logscale)
+    saxs.heatmap(
+        fig, ax, show_colorbar=True, x_axis=save_axis, x_lim=x_lim, logscale=logscale
+    )
     if title == "":
         title = os.path.basename(dir)
     elif title == None:
