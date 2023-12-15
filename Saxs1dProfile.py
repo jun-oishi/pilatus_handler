@@ -6,6 +6,7 @@ from matplotlib.axes import Axes
 from matplotlib.colors import Colormap
 import util
 import XafsData
+import json
 
 __version__ = "0.1.1"
 
@@ -106,8 +107,14 @@ class SaxsSeries:
         2d array of intensity data (i[n_file, r.size])
     """
 
-    def __init__(self, dir: str, *, axis="r", ext=".csv"):
+    def __init__(
+        self, dir: str, *, axis="r", ext=".csv", parampath="", paramkey="saxs"
+    ):
         self.dir = os.path.join(os.getcwd(), dir)
+
+        self._m = np.nan
+        self._b = 0
+        self.loadParam(parampath, paramkey)
 
         filePaths = [
             os.path.join(self.dir, name) for name in util.listFiles(self.dir, ext=ext)
@@ -124,9 +131,52 @@ class SaxsSeries:
             raise ValueError("invalid axis")
         self.axis = axis
         self._i = np.array([f._i for f in files], dtype=float)
-        self._m = np.nan
-        self._b = 0
         return
+
+    def loadParam(self, path: str, key: str = "") -> bool:
+        """r-q変換などのパラメタを読み込む
+
+        Parameters
+        ----------
+        path : str
+            self.dirからの相対パス, ディレクトリならその中のparam.jsonを読み込む
+        key : str
+            空文字列以外ならparam[key]を読み込む
+
+        Returns
+        -------
+        bool
+            読み込みに成功したらTrue
+
+        Raises
+        ------
+        FileNotFoundError
+        ValueError
+            jsonファイルでない場合
+        """
+        if path == "":
+            path = os.path.join(self.dir, "param.json")
+            if not os.path.isfile(path):
+                return False
+        else:
+            path = os.path.join(self.dir, path)
+
+        if os.path.isdir(path):
+            path = os.path.join(path, "param.json")
+            if not os.path.isfile(path):
+                raise FileNotFoundError(f"{path} is not found")
+        elif not path.endswith(".json"):
+            raise ValueError("param file must be json")
+        elif not os.path.isfile(path):
+            raise FileNotFoundError(f"{path} is not found")
+
+        with open(path, "r") as f:
+            param = json.load(f)
+        if key != "":
+            param = param[key]
+        self.m = param["m"]
+        self.b = param["b"] if "b" in param.keys() else 0
+        return True
 
     @property
     def m(self) -> float:
@@ -134,7 +184,7 @@ class SaxsSeries:
 
     @m.setter
     def m(self, m: float):
-        self._m = m
+        self._m = float(m)
         return
 
     @property
@@ -143,7 +193,7 @@ class SaxsSeries:
 
     @b.setter
     def b(self, b: float):
-        self._b = b
+        self._b = float(b)
         return
 
     @property
