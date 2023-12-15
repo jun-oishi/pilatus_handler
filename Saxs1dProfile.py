@@ -71,11 +71,19 @@ class Saxs1dProfile:
         return
 
     @classmethod
+    def load(cls, path: str, axis: str = "r"):
+        if path.endswith(".csv"):
+            return cls.load_csv(path, axis)
+        elif path.endswith(".chi"):
+            return cls.load_chi(path, axis)
+        else:
+            raise ValueError("unsupported file type: `csv` and `chi` are supported")
+
+    @classmethod
     def load_csv(
-        # cls, path: str, *, delimiter: str | None = None, skiprows: int = 4, axis="r"
         cls,
         path: str,
-        axis="r",
+        axis: str = "r",
         check_header: bool = True,
     ) -> "Saxs1dProfile":
         csv = util.loadCsv(path, usecols=(0, 1))
@@ -94,6 +102,33 @@ class Saxs1dProfile:
         else:
             raise ValueError("invalid axis")
 
+    @classmethod
+    def load_chi(
+        cls,
+        path: str,
+        axis: str = "r",
+    ) -> "Saxs1dProfile":
+        headers = {}
+        with open(path, "r") as f:
+            headers["source"] = f.readline()
+            headers["first_column"] = f.readline()
+            headers["second_column"] = f.readline()
+            headers["n_rows"] = f.readline()
+
+        if axis not in ("r", "q"):
+            raise ValueError("invalid axis")
+
+        if (axis == "r" and "Radial distance" not in headers["first_column"]) or (
+            axis == "q" and "Q" not in headers["first_column"]
+        ):
+            raise ValueError("axis not matched")
+
+        data = np.loadtxt(path, skiprows=4)
+        if axis == "r":
+            return cls(r=data[:, 0], i=data[:, 1])
+        elif axis == "q":
+            return cls(q=data[:, 0], i=data[:, 1])
+
 
 class SaxsSeries:
     """
@@ -110,16 +145,27 @@ class SaxsSeries:
     def __init__(
         self, dir: str, *, axis="r", ext=".csv", parampath="", paramkey="saxs"
     ):
+        if axis not in ("r", "theta", "q"):
+            raise ValueError(f"invalid axis `{axis}`")
+        if not os.path.isdir(dir):
+            raise FileNotFoundError(f"`{dir}` is not found")
+        if ext not in (".csv", ".chi"):
+            raise ValueError(f"invalid extention `{ext}`")
         self.dir = os.path.join(os.getcwd(), dir)
-
-        self._m = np.nan
-        self._b = 0
-        self.loadParam(parampath, paramkey)
 
         filePaths = [
             os.path.join(self.dir, name) for name in util.listFiles(self.dir, ext=ext)
         ]
-        files = [Saxs1dProfile.load_csv(f, axis=axis) for f in filePaths]
+        if len(filePaths) == 0:
+            raise FileNotFoundError(f"no {ext} file in {self.dir}")
+
+        if ext == ".csv":
+            files = [Saxs1dProfile.load_csv(f, axis=axis) for f in filePaths]
+        elif ext == ".chi":
+            files = [Saxs1dProfile.load_chi(f, axis=axis) for f in filePaths]
+        else:
+            raise ValueError("unsupported file type: `csv` and `chi` are supported")
+
         self._r, self._theta = _EMPTY, _EMPTY
         if axis == "r":
             self._r = files[0]._r
@@ -131,6 +177,10 @@ class SaxsSeries:
             raise ValueError("invalid axis")
         self.axis = axis
         self._i = np.array([f._i for f in files], dtype=float)
+
+        self._m = np.nan
+        self._b = 0
+        self.loadParam(parampath, paramkey)
         return
 
     def loadParam(self, path: str, key: str = "") -> bool:
@@ -185,6 +235,7 @@ class SaxsSeries:
     @m.setter
     def m(self, m: float):
         self._m = float(m)
+        self._q = self.__r2q()
         return
 
     @property
@@ -194,11 +245,15 @@ class SaxsSeries:
     @b.setter
     def b(self, b: float):
         self._b = float(b)
+        self._q = self.__r2q()
         return
+
+    def __r2q(self) -> np.ndarray:
+        return self.m * self.r + self.b
 
     @property
     def q(self) -> np.ndarray:
-        return self.r * self.m + self.b
+        return self._q
 
     @property
     def r(self) -> np.ndarray:
@@ -230,7 +285,7 @@ class SaxsSeries:
         show_colorbar: bool = False,
         extend: str = "min",
         cbar_fraction: float = 0.01,
-        cbar_pad: float = 0.07,
+        cbar_pad: float = 0.09,
     ) -> None:
         """ヒートマップを描画する
 
@@ -291,23 +346,31 @@ class SaxsSeries:
             raise ValueError("invalid x_axis")
 
         if not np.isnan(x_lim[0]):
+            if x_lim[0] > x.max():
+                raise ValueError("x_lim[0] is out of range")
             ini = np.searchsorted(x, x_lim[0])
             i = i[:, ini:]
             x = x[ini:]
         if not np.isnan(x_lim[1]):
+            if x_lim[1] < x.min():
+                raise ValueError("x_lim[1] is out of range")
             fin = np.searchsorted(x, x_lim[1])
             x = x[:fin]
             i = i[:, :fin]
         if not np.isnan(y_lim[0]):
+            if y_lim[0] > y.max():
+                raise ValueError("y_lim[0] is out of range")
             ini = np.searchsorted(y, y_lim[0])
             y = y[ini:]
             i = i[ini:, :]
         if not np.isnan(y_lim[1]):
+            if y_lim[1] < y.min():
+                raise ValueError("y_lim[1] is out of range")
             fin = np.searchsorted(y, y_lim[1])
             y = y[:fin]
             i = i[:fin, :]
 
-        if logscale:
+        if logscale and np.any(i <= 0):
             i[i <= 0] = np.nanmin(i[i > 0])
             i = np.log(i)
 

@@ -103,7 +103,12 @@ def loadCsv(
         candidates = (",", "\t", " ")
         for d in candidates:
             data = np.loadtxt(
-                path, delimiter=d, skiprows=skiprows, max_rows=1, dtype=dtype
+                path,
+                delimiter=d,
+                skiprows=skiprows,
+                usecols=usecols,
+                max_rows=1,
+                dtype=dtype,
             )
             if len(data) >= n_columns:
                 delimiter = d
