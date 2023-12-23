@@ -47,11 +47,6 @@ def _ellipse(
     return cv2.ellipse(img, (center, axes, tilt), color, thickness)  # type: ignore
 
 
-UNKNOWN_DETECTOR = None
-PILATUS = None
-EIGER = None
-
-
 class _Detector:
     """検出器を表現するクラス
     基本的にシングルトンで使う
@@ -62,41 +57,27 @@ class _Detector:
     pixelSize : float [mm]
     """
 
-    def __new__(cls):
-        super().__new__(cls)
-        cls.__name: str = ""
-        cls.__pixelSize: float = np.nan
-        return cls
-
-    def __init__(self):
-        raise NotImplementedError("cannot intstantiate")
+    def __init__(self, pixelSize: float = np.nan, *, name: str = ""):
+        self.__pixelSize: float = pixelSize
+        self.__name: str = name
 
     @classmethod
-    def unknown(cls) -> "_Detector":
-        if UNKNOWN_DETECTOR is not None:
-            return UNKNOWN_DETECTOR
-        obj = cls()
-        obj.__name = "unknown"
-        obj.__pixelSize = np.nan  # mm
-        return obj
+    def unknown(cls, pixelSize=np.nan) -> "_Detector":
+        if not hasattr(cls, "_unknown"):
+            cls._unknown = cls(pixelSize, name="unknown")
+        return cls._unknown
 
     @classmethod
     def Pilutus(cls) -> "_Detector":
-        if PILATUS is not None:
-            return PILATUS
-        obj = cls()
-        obj.__name = "pilatus"
-        obj.__pixelSize = 172e-3  # mm
-        return obj
+        if not hasattr(cls, "_pilutus"):
+            cls._pilutus = cls(0.172, name="pilatus")
+        return cls._pilutus
 
     @classmethod
     def Eiger(cls) -> "_Detector":
-        if EIGER is not None:
-            return EIGER
-        obj = cls()
-        obj.__name = "eiger"
-        obj.__pixelSize = 75e-3  # mm
-        return obj
+        if not hasattr(cls, "_eiger"):
+            cls._eiger = cls(0.075, name="eiger")
+        return cls._eiger
 
     @property
     def name(self) -> str:
@@ -105,11 +86,6 @@ class _Detector:
     @property
     def pixelSize(self) -> float:
         return self.__pixelSize
-
-
-UNKNOWN_DETECTOR: _Detector = _Detector.unknown()
-PILATUS: _Detector = _Detector.Pilutus()
-EIGER: _Detector = _Detector.Eiger()
 
 
 class Saxs2dProfile:
@@ -130,13 +106,13 @@ class Saxs2dProfile:
         self._raw: np.ndarray = raw
         self.__center: tuple[float, float] = (np.nan, np.nan)
         self._mask: np.ndarray = np.ones_like(raw, dtype=bool)
-        self._detector: _Detector = UNKNOWN_DETECTOR
+        self._detector: _Detector = _Detector.unknown()
 
     def setDetector(self, detector: str):
         if detector == "pilatus":
-            self._detector = PILATUS
+            self._detector = _Detector.Pilutus()
         elif detector == "eiger":
-            self._detector = EIGER
+            self._detector = _Detector.Eiger()
 
     @property
     def pixelSize(self) -> float:
