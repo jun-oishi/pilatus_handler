@@ -97,6 +97,8 @@ class Saxs2dProfile:
     _raw : np.ndarray
     center : tuple[float, float]
         (x, y) coordinate of beam center in THIS ORDER [px]
+    _mask : np.ndarray
+        0の画素は無視される
     detector : _Detector
     pixelSize : float [mm/px]
     _cameraLength : float [mm]
@@ -179,6 +181,10 @@ class Saxs2dProfile:
     @property
     def raw(self) -> np.ndarray:
         return self._raw
+
+    @property
+    def i(self) -> np.ndarray:
+        return self._raw * self._mask
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -314,15 +320,16 @@ class PatchedSaxsImage(Saxs2dProfile):
             bins for radial average, has one more element than intensity
             when axis="r", unit is px and bin width is 1
         """
-        buf = self._raw.copy()
+        buf = self.i
         dx = np.arange(self.width) - self.center[0]
         dy = np.arange(self.height) - self.center[1]
         dx, dy = np.meshgrid(dx, dy)
         r = np.sqrt(dx**2 + dy**2)
 
-        dr = 1
+        dr = 1.0  # px
         r_min = int(np.floor(np.min(r)))
         r_max = int(np.ceil(np.max(r)))
+        r = r * self._mask.astype(r.dtype)  # maskされた画素は0になってhistogramから除外される
 
         bins = np.arange(r_min, r_max + dr, dr)
         buf = buf * self._mask.astype(buf.dtype)
