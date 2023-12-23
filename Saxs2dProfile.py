@@ -296,7 +296,7 @@ class PatchedSaxsImage(Saxs2dProfile):
 
         return self.center
 
-    def radial_average(self) -> tuple[np.ndarray, np.ndarray]:
+    def radial_average(self, axis="r") -> tuple[np.ndarray, np.ndarray]:
         """compute radial average
 
         Parameters
@@ -315,11 +315,6 @@ class PatchedSaxsImage(Saxs2dProfile):
             when axis="r", unit is px and bin width is 1
         """
         buf = self._raw.copy()
-
-        # dx = np.ones_like(buf) * np.arange(buf.shape[1]) - self._center[1]
-        # dy = (
-        #     np.ones_like(buf) * np.arange(buf.shape[0]).reshape(-1, 1) - self._center[0]
-        # )
         dx = np.arange(self.width) - self.center[0]
         dy = np.arange(self.height) - self.center[1]
         dx, dy = np.meshgrid(dx, dy)
@@ -336,6 +331,19 @@ class PatchedSaxsImage(Saxs2dProfile):
         cnt = np.histogram(r, bins=bins)[0]
         sum = np.histogram(r, bins=bins, weights=buf)[0]
         intensity = sum / cnt
+
+        if axis == "r":
+            pass
+        elif axis in ("2theta", "q"):
+            bins = bins * self.pixelSize  # px -> mm
+            bins = bins / self._cameraLength  #  mm -> tan
+            bins = np.arctan(bins)  # tan -> rad
+            if axis == "2theta":
+                bins = np.rad2deg(bins)
+            elif axis == "q":
+                bins = 4 * np.pi * np.sin(bins / 2) / self._waveLength
+        else:
+            raise ValueError("invalid axis specifier")
 
         return intensity, bins
 
