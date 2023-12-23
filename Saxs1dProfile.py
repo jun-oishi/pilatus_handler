@@ -7,6 +7,7 @@ from matplotlib.colors import Colormap
 import util
 import XafsData
 import json
+from copy import deepcopy
 
 __version__ = "0.1.1"
 
@@ -325,7 +326,7 @@ class SaxsSeries:
         ------
         ValueError
         """
-        i = self.i.copy()
+        i = deepcopy(self.i)
 
         if y.size == 0:
             y = np.arange(i.shape[0])
@@ -347,25 +348,33 @@ class SaxsSeries:
 
         if not np.isnan(x_lim[0]):
             if x_lim[0] > x.max():
-                raise ValueError("x_lim[0] is out of range")
+                raise ValueError(
+                    f"x_lim[0]:{x_lim[0]} is out of data range: ({x.min()}, {x.max()})"
+                )
             ini = np.searchsorted(x, x_lim[0])
             i = i[:, ini:]
             x = x[ini:]
         if not np.isnan(x_lim[1]):
             if x_lim[1] < x.min():
-                raise ValueError("x_lim[1] is out of range")
+                raise ValueError(
+                    f"x_lim[1]:{x_lim[1]} is out of data range: ({x.min()}, {x.max()})"
+                )
             fin = np.searchsorted(x, x_lim[1])
             x = x[:fin]
             i = i[:, :fin]
         if not np.isnan(y_lim[0]):
             if y_lim[0] > y.max():
-                raise ValueError("y_lim[0] is out of range")
+                raise ValueError(
+                    f"y_lim[0]:{y_lim[0]} is out of data range: ({y.min()}, {y.max()})"
+                )
             ini = np.searchsorted(y, y_lim[0])
             y = y[ini:]
             i = i[ini:, :]
         if not np.isnan(y_lim[1]):
             if y_lim[1] < y.min():
-                raise ValueError("y_lim[1] is out of range")
+                raise ValueError(
+                    f"y_lim[1]:{y_lim[1]} is out of data range: ({y.min()}, {y.max()})"
+                )
             fin = np.searchsorted(y, y_lim[1])
             y = y[:fin]
             i = i[:fin, :]
