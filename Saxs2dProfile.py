@@ -10,6 +10,7 @@ import matplotlib
 from datetime import datetime
 from typing import overload
 import tqdm
+import re
 
 matplotlib.use("Qt5Agg")
 
@@ -98,6 +99,12 @@ class Saxs2dProfile:
         (x, y) coordinate of beam center in THIS ORDER [px]
     detector : _Detector
     pixelSize : float [mm/px]
+    _cameraLength : float [mm]
+    _waveLength : float [nm]
+    _AngleOfTiltPlane : float [deg]
+    _AngleOfTilt : float [deg]
+    _AngleOfRotation : float [deg]
+    _PolarisationFactor : float
     """
 
     DEFAULT_MARK_COLOR = GREEN
@@ -107,6 +114,57 @@ class Saxs2dProfile:
         self.__center: tuple[float, float] = (np.nan, np.nan)
         self._mask: np.ndarray = np.ones_like(raw, dtype=bool)
         self._detector: _Detector = _Detector.unknown()
+        self._cameraLength: float = np.nan  # mm
+        self._waveLength: float = np.nan  # nm
+        self._AngleOfTiltPlane: float = np.nan  # deg
+        self._AngleOfTilt: float = np.nan  # deg
+        self._AngleOfRotation: float = np.nan  # deg
+        self._PolarisationFactor: float = np.nan
+
+    def loadFit2dPar(self, path: str) -> None:
+        """fit2dのパラメタファイルからパラメタを読み込む"""
+        lines = []
+        with open(path) as f:
+            lines = f.readlines()
+
+        for line in lines:
+            m = re.match(
+                r"X/Y pixel sizes =[ ]+(\d+\.\d+),[ ]+(\d+\.\d+)[ ]+microns", line
+            )
+            if m:
+                self._detector = _Detector(float(m.group(1)) / 1000)
+                continue
+            m = re.match(r"Sample to detector distance =[ ]+(\d+\.\d+)[ ]+mm", line)
+            if m:
+                self._cameraLength = float(m.group(1))
+                continue
+            m = re.match(r"Wavelength =[ ]+(\d+.\d+)[ ]+Angstroms", line)
+            if m:
+                self._waveLength = float(m.group(1)) / 10
+                continue
+            m = re.match(
+                r"X/Y pixel position of beam =[ ]+(\d+\.\d+),[ ]+(\d+\.\d+)", line
+            )
+            if m:
+                self.center = (float(m.group(1)), float(m.group(2)))
+                continue
+            m = re.match(r"Angle of tilt plane =[ ]+(\d+\.\d+)[ ]+degrees", line)
+            if m:
+                self._AngleOfTiltPlane = float(m.group(1))
+                continue
+            m = re.match(r"Angle of tilt =[ ]+(\d+\.\d+)[ ]+degrees", line)
+            if m:
+                self._AngleOfTilt = float(m.group(1))
+                continue
+            m = re.match(r"Detector rotation angle =[ ]+(\d+\.\d+)[ ]+degrees", line)
+            if m:
+                self._AngleOfRotation = float(m.group(1))
+                continue
+            m = re.match(r"Polarisation factor =[ ]+(\d+\.\d+)", line)
+            if m:
+                self._PolarisationFactor = float(m.group(1))
+                continue
+        return
 
     def setDetector(self, detector: str):
         if detector == "pilatus":
@@ -135,7 +193,7 @@ class Saxs2dProfile:
         return self._raw.shape[0]
 
     @classmethod
-    def load_tiff(cls, path: str, flip=""):
+    def load_tiff(cls, path: str, flip="", paramfile=""):
         """load profile from tiff file
 
         Parameters
@@ -156,7 +214,11 @@ class Saxs2dProfile:
             flipped = flipped[:, ::-1]
         if "v" in flip or "vertical" in flip:
             flipped = flipped[::-1, :]
-        return cls(flipped)
+        ret = cls(flipped)
+        if paramfile:
+            paramfile = os.path.join(os.path.dirname(path), paramfile)
+            ret.loadFit2dPar(paramfile)
+        return ret
 
     @property
     def center(self) -> tuple[float, float]:
@@ -197,8 +259,10 @@ class PatchedSaxsImage(Saxs2dProfile):
         self.cameraLength = np.nan  # mm
 
     @classmethod
-    def load_tiff(cls, path: str, flip="") -> "PatchedSaxsImage":
-        return super().load_tiff(path, flip)
+    def load_tiff(cls, path: str, *, flip="v", paramfile="") -> "PatchedSaxsImage":
+        ret = super().load_tiff(path, flip, paramfile=paramfile)
+        ret.thresholdMask()
+        return ret
 
     def detect_center(self) -> tuple[float, float]:
         """detect center and set to self.__center
