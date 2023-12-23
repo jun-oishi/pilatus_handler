@@ -783,7 +783,9 @@ class DeterminCameraParam:
 def tif2chi(
     src: str,
     *,
+    paramfile="",
     center=(np.nan, np.nan),
+    axis="r",
     cameraLength=np.nan,
     psi=0.0,
     kind: str = "patched",
@@ -840,12 +842,21 @@ def tif2chi(
         param = f'param,"cener=({center[0]}, {center[1]})", cameraLength={cameraLength}px, psi={psi}deg'
         labels = "theta[deg],i"
     elif kind == "patched":
-        profile = PatchedSaxsImage.load_tiff(src)
-        profile.thresholdMask()
-        profile.center = center
+        profile = PatchedSaxsImage.load_tiff(src, paramfile=paramfile)
+        if paramfile == "":
+            profile.center = center
         param = f"param,center=({center[0]}, {center[1]})"
-        labels = "r[px],i"
-        i, x = profile.radial_average()
+        if axis == "r":
+            labels = "r[px],i"
+            i, x = profile.radial_average(axis="r")
+        elif axis == "2theta":
+            labels = "2theta[deg],i"
+            i, x = profile.radial_average(axis="2theta")
+        elif axis == "q":
+            labels = "q[nm^-1],i"
+            i, x = profile.radial_average(axis="q")
+        else:
+            raise ValueError(f"invalid axis specifier {axis}")
         x = (x[:-1] + x[1:]) / 2
     else:
         raise ValueError("invalid type")
@@ -858,12 +869,15 @@ def tif2chi(
 def seriesIntegrate(
     dir: str,
     *,
+    paramfile="",
     center=(np.nan, np.nan),
     cameraLength=np.nan,
+    axis="r",
     psi=0.0,
     kind: str = "patched",
     overwrite=False,
     heatmap=True,
+    heatmap_xlim=(np.nan, np.nan),
     verbose=False,
     suffix="",
     flip="",
@@ -913,7 +927,9 @@ def seriesIntegrate(
                 dist = tif2chi(
                     src,
                     kind=kind,
+                    paramfile=paramfile,
                     center=center,
+                    axis=axis,
                     psi=psi,
                     cameraLength=cameraLength,
                     overwrite=overwrite,
@@ -942,4 +958,6 @@ def seriesIntegrate(
 
         if not no_error:
             print("WARNING : some files skipped")
-        saveHeatmap(dir, overwrite=overwrite)
+        saveHeatmap(
+            dir, overwrite=overwrite, load_axis=axis, save_axis=axis, x_lim=heatmap_xlim
+        )

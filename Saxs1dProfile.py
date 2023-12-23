@@ -89,16 +89,22 @@ class Saxs1dProfile:
     ) -> "Saxs1dProfile":
         csv = util.loadCsv(path, usecols=(0, 1))
         if axis == "r":
-            if check_header and "r" not in csv.header[0]:
-                raise ValueError("axis not matched")
+            if check_header and not "r" in csv.header[0]:
+                raise ValueError(
+                    f"specifiead axis `{axis}` not match loaded aixs `{csv.header[0]}`"
+                )
             return cls(r=csv.data[:, 0], i=csv.data[:, 1])
         elif axis == "theta":
-            if check_header and "theta" not in csv.header[0]:
-                raise ValueError("axis not matched")
+            if check_header and not "theta" in csv.header[0]:
+                raise ValueError(
+                    f"specifiead axis `{axis}` not match loaded aixs `{csv.header[0]}`"
+                )
             return cls(theta=csv.data[:, 0], i=csv.data[:, 1])
         elif axis == "q":
-            if check_header and ("q" not in csv.header[0] or "Q" not in csv.header[0]):
-                raise ValueError("axis not matched")
+            if check_header and not ("q" in csv.header[0] or "Q" in csv.header[0]):
+                raise ValueError(
+                    f"specifiead axis `{axis}` not match loaded aixs `{csv.header[0]}`"
+                )
             return cls(q=csv.data[:, 0], i=csv.data[:, 1])
         else:
             raise ValueError("invalid axis")
