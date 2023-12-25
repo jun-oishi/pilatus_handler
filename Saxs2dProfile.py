@@ -845,7 +845,7 @@ def tif2chi(
         profile = PatchedSaxsImage.load_tiff(src, paramfile=paramfile)
         if paramfile == "":
             profile.center = center
-        param = f"param,center=({center[0]}, {center[1]})"
+        param = f"param,center=({profile.center[0]}, {profile.center[1]})"
         if axis == "r":
             labels = "r[px],i"
             i, x = profile.radial_average(axis="r")
