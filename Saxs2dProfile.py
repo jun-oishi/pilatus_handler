@@ -6,6 +6,7 @@ import os
 import util
 from matplotlib import pyplot as plt
 from matplotlib.widgets import Slider, Button
+from matplotlib.axes import Axes
 import matplotlib
 from datetime import datetime
 from typing import overload
@@ -327,15 +328,15 @@ class PatchedSaxsImage(Saxs2dProfile):
         r = np.sqrt(dx**2 + dy**2)
 
         dr = 1.0  # px
-        r_min = int(np.floor(np.min(r)))
-        r_max = int(np.ceil(np.max(r)))
         r = r * self._mask.astype(r.dtype)  # maskされた画素は0になってhistogramから除外される
+        r_min = int(np.floor(np.min(r[r > 0])))
+        r_max = int(np.ceil(np.max(r)))
 
         bins = np.arange(r_min, r_max + dr, dr)
-        buf = buf * self._mask.astype(buf.dtype)
 
         intensity = np.empty(bins.size - 1)
         cnt = np.histogram(r, bins=bins)[0]
+        cnt[cnt == 0] = -1  # 0除算を防ぐ
         sum = np.histogram(r, bins=bins, weights=buf)[0]
         intensity = sum / cnt
 
