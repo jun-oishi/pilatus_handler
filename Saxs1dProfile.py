@@ -16,6 +16,9 @@ _EMPTY = np.array([])
 plt.rcParams["font.family"] = "DejaVu Serif"
 plt.rcParams["mathtext.fontset"] = "dejavuserif"
 
+_q2d = lambda q: 2 * np.pi / q
+_d2q = lambda d: 2 * np.pi / d
+
 
 class Saxs1dProfile:
     """
@@ -150,6 +153,19 @@ class SaxsSeries:
     """
 
     def __init__(
+        self, path: str, *, axis="r", ext=".csv", parampath="", paramkey="saxs"
+    ):
+        if os.path.isdir(path):
+            self.loadFiles(
+                path, axis=axis, ext=ext, parampath=parampath, paramkey=paramkey
+            )
+        else:
+            data = np.loadtxt(path, delimiter=",", skiprows=1)
+            self._q = data[:, 0]
+            self._i = data[:, 1:].T
+        return
+
+    def loadFiles(
         self, dir: str, *, axis="r", ext=".csv", parampath="", paramkey="saxs"
     ):
         if axis not in ("r", "theta", "q"):
@@ -187,7 +203,8 @@ class SaxsSeries:
 
         self._m = np.nan
         self._b = 0
-        self.loadParam(parampath, paramkey)
+        if axis == "r":
+            self.loadParam(parampath, paramkey)
         return
 
     def loadParam(self, path: str, key: str = "") -> bool:
@@ -282,8 +299,11 @@ class SaxsSeries:
         logscale: bool = True,
         x_axis="",
         x_lim=(np.nan, np.nan),
+        secondary_xaxis: bool = True,
         y: np.ndarray = _EMPTY,
         y_label: str = "file number",
+        y_ticks: np.ndarray = _EMPTY,
+        y_tick_labels: list[str] = [],
         y_lim=(np.nan, np.nan),
         n_levels: int = 128,
         vmin=np.nan,
@@ -349,6 +369,9 @@ class SaxsSeries:
         elif x_axis == "q":
             x = self.q
             x_label = "$q\;[\mathrm{nm}^{-1}]$"
+            if secondary_xaxis:
+                top_ax = ax.secondary_xaxis("top", functions=(_q2d, _d2q))
+                top_ax.set_xlabel("$d\;[\mathrm{nm}]$")
         else:
             raise ValueError("invalid x_axis")
 
@@ -410,8 +433,26 @@ class SaxsSeries:
             else:
                 cbar.set_label("$I(q)\;[a.u.]$")
         ax.set_xlabel(x_label)
-        ax.set_ylabel(y_label)
+
+        if len(y_ticks) != 0:
+            ax.set_yticks(y_ticks, y_tick_labels)
+
+        if y_label != "":
+            ax.set_ylabel(y_label)
         return
+
+    @classmethod
+    def squash(
+        cls, dir: str, *, axis="r", ext=".csv", parampath="", paramkey="saxs"
+    ) -> str:
+        obj = cls(dir, axis=axis, ext=ext, parampath=parampath, paramkey=paramkey)
+        if obj.q.size == 0:
+            raise ValueError("data must be in q")
+        data = np.hstack((obj.q.reshape(-1, 1), obj.i.T))
+        header = "q[nm^-1]," + ",".join([str(i + 1) for i in range(obj.i.shape[0])])
+        dist = dir + ".csv" if not dir.endswith("/") else dir[:-1] + ".csv"
+        np.savetxt(dist, data, header=header, delimiter=",")
+        return dist
 
 
 class DafsData(SaxsSeries):
