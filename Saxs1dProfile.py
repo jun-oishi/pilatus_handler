@@ -5,6 +5,7 @@ from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 from matplotlib.colors import Colormap
 import util
+from util import ArrayLike
 import XafsData
 import json
 from copy import deepcopy
@@ -89,6 +90,8 @@ class Saxs1dProfile:
         path: str,
         axis: str = "r",
         check_header: bool = True,
+        parampath: str = "",
+        paramkey="",
     ) -> "Saxs1dProfile":
         csv = util.loadCsv(path, usecols=(0, 1))
         if axis == "r":
@@ -96,21 +99,24 @@ class Saxs1dProfile:
                 raise ValueError(
                     f"specifiead axis `{axis}` not match loaded aixs `{csv.header[0]}`"
                 )
-            return cls(r=csv.data[:, 0], i=csv.data[:, 1])
+            ret = cls(r=csv.data[:, 0], i=csv.data[:, 1])
+            parampath = os.path.join(os.path.dirname(path), parampath)
+            ret.loadParam(parampath, key=paramkey)
         elif axis == "theta":
             if check_header and not "theta" in csv.header[0]:
                 raise ValueError(
                     f"specifiead axis `{axis}` not match loaded aixs `{csv.header[0]}`"
                 )
-            return cls(theta=csv.data[:, 0], i=csv.data[:, 1])
+            ret = cls(theta=csv.data[:, 0], i=csv.data[:, 1])
         elif axis == "q":
             if check_header and not ("q" in csv.header[0] or "Q" in csv.header[0]):
                 raise ValueError(
                     f"specifiead axis `{axis}` not match loaded aixs `{csv.header[0]}`"
                 )
-            return cls(q=csv.data[:, 0], i=csv.data[:, 1])
+            ret = cls(q=csv.data[:, 0], i=csv.data[:, 1])
         else:
             raise ValueError("invalid axis")
+        return ret
 
     @classmethod
     def load_chi(
@@ -138,6 +144,43 @@ class Saxs1dProfile:
             return cls(r=data[:, 0], i=data[:, 1])
         elif axis == "q":
             return cls(q=data[:, 0], i=data[:, 1])
+
+    def loadParam(self, path: str, key: str = "") -> bool:
+        """r-q変換などのパラメタを読み込む
+
+        Parameters
+        ----------
+        path : str
+            self.dirからの相対パス, ディレクトリならその中のparam.jsonを読み込む
+        key : str
+            空文字列以外ならparam[key]を読み込む
+
+        Returns
+        -------
+        bool
+            読み込みに成功したらTrue
+
+        Raises
+        ------
+        FileNotFoundError
+        ValueError
+            jsonファイルでない場合
+        """
+        if os.path.isdir(path):
+            path = os.path.join(path, "param.json")
+            if not os.path.isfile(path):
+                raise FileNotFoundError(f"{path} is not found")
+        elif not path.endswith(".json"):
+            raise ValueError("param file must be json")
+        elif not os.path.isfile(path):
+            raise FileNotFoundError(f"{path} is not found")
+
+        with open(path, "r") as f:
+            param = json.load(f)
+        if key != "":
+            param = param[key]
+        self._q = param["m"] * self._r + param["b"]
+        return True
 
 
 class SaxsSeries:
@@ -302,7 +345,7 @@ class SaxsSeries:
         secondary_xaxis: bool = True,
         y: np.ndarray = _EMPTY,
         y_label: str = "file number",
-        y_ticks: np.ndarray = _EMPTY,
+        y_ticks: ArrayLike = _EMPTY,
         y_tick_labels: list[str] = [],
         y_lim=(np.nan, np.nan),
         n_levels: int = 128,
