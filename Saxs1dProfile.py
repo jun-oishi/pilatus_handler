@@ -202,10 +202,13 @@ class SaxsSeries:
             self.loadFiles(
                 path, axis=axis, ext=ext, parampath=parampath, paramkey=paramkey
             )
+            self.axis = axis
         else:
             data = np.loadtxt(path, delimiter=",", skiprows=1)
             self._q = data[:, 0]
             self._i = data[:, 1:].T
+            self.axis = "q"
+        self._integrated = _EMPTY
         return
 
     def loadFiles(
@@ -333,6 +336,25 @@ class SaxsSeries:
     @property
     def i(self) -> np.ndarray:
         return self._i
+
+    @property
+    def integrated(self) -> np.ndarray:
+        if self._integrated.size == 0:
+            self.integrate()
+        return self._integrated
+
+    def integrate(self) -> None:
+        """積分強度を計算する"""
+        q_ini = np.empty_like(self.q)
+        q_ini[0] = self.q[0] - (self.q[1] - self.q[0]) / 2
+        q_ini[1:] = (self.q[:-1] + self.q[1:]) / 2
+        q_fin = np.empty_like(self.q)
+        q_fin[:-1] = (self.q[:-1] + self.q[1:]) / 2
+        q_fin[-1] = self.q[-1] + (self.q[-1] - self.q[-2]) / 2
+        dq = q_fin - q_ini
+        integrated = np.nansum(self.i * self.q**2 * dq, axis=1)
+        self._integrated = integrated / integrated[0]
+        return
 
     def heatmap(
         self,

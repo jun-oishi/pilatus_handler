@@ -13,7 +13,7 @@ from typing import overload
 import tqdm
 import re
 
-matplotlib.use("Qt5Agg")
+# matplotlib.use("Qt5Agg")
 
 __version__ = "0.1.0"
 
