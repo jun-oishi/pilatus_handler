@@ -337,24 +337,13 @@ class SaxsSeries:
     def i(self) -> np.ndarray:
         return self._i
 
-    @property
-    def integrated(self) -> np.ndarray:
-        if self._integrated.size == 0:
-            self.integrate()
-        return self._integrated
-
-    def integrate(self) -> None:
+    def integrate(self, q_min: float = -np.inf, q_max: float = np.inf) -> np.ndarray:
         """積分強度を計算する"""
-        q_ini = np.empty_like(self.q)
-        q_ini[0] = self.q[0] - (self.q[1] - self.q[0]) / 2
-        q_ini[1:] = (self.q[:-1] + self.q[1:]) / 2
-        q_fin = np.empty_like(self.q)
-        q_fin[:-1] = (self.q[:-1] + self.q[1:]) / 2
-        q_fin[-1] = self.q[-1] + (self.q[-1] - self.q[-2]) / 2
-        dq = q_fin - q_ini
-        integrated = np.nansum(self.i * self.q**2 * dq, axis=1)
-        self._integrated = integrated / integrated[0]
-        return
+        idx = (self.q >= q_min) * (self.q <= q_max)
+        q = self.q[idx]
+        i = self.i[:, idx]
+        iq2 = i * (q**2)  # 行ごとにq^2をかける
+        return np.trapz(iq2, q, axis=1)  # 行ごとに積分
 
     def heatmap(
         self,
