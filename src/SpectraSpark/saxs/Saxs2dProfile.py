@@ -3,15 +3,14 @@
 import numpy as np
 import cv2
 import os
-import util
 from matplotlib import pyplot as plt
 from matplotlib.widgets import Slider, Button
 from matplotlib.axes import Axes
-import matplotlib
 from datetime import datetime
 from typing import overload
 import tqdm
 import re
+from ..util import listFiles
 
 # matplotlib.use("Qt5Agg")
 
@@ -19,8 +18,6 @@ __version__ = "0.1.0"
 
 
 GREEN = (0, 255, 0)  # BGR
-
-_EMPTY = np.array([])
 
 
 def _compress(raw: np.ndarray, dtype=np.uint8, *, min=None, max=None) -> np.ndarray:
@@ -918,7 +915,7 @@ def seriesIntegrate(
     no_error = True
     if not os.path.isdir(dir):
         raise FileNotFoundError(f"{dir} not found")
-    files = util.listFiles(dir, ext=".tif")
+    files = listFiles(dir, ext=".tif")
     print(f"{len(files)} file found")
     bar = tqdm.tqdm(total=len(files), disable=verbose)
     for i, file in enumerate(files):

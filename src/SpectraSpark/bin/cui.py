@@ -1,11 +1,10 @@
-from Saxs2dProfile import Saxs2dProfile
-from Saxs1dProfile import SaxsSeries, DafsData
-from XafsData import XafsData
-import util
 import os
 import numpy as np
 import traceback
-import sys
+from ..saxs.Saxs2dProfile import Saxs2dProfile
+from ..saxs.Saxs1dProfile import SaxsSeries, DafsData
+from ..xafs.XafsData import XafsData
+from ..util import listFiles
 
 
 class Cui:
@@ -55,7 +54,7 @@ class Cui:
             print("center not set")
         print(f"dir       : {os.getcwd()}")
         print(f"center    : {self.x}, {self.y}")
-        self.files = util.listFiles(os.getcwd())  # relative path
+        self.files = listFiles(os.getcwd())  # relative path
         print(f"num files : {len(self.files)}")
         print(f"first file: {self.files[0]}")
         print(f"last file : {self.files[-1]}")
@@ -96,7 +95,7 @@ class Cui:
         return
 
     def dafs_heatmap(self, xafsfile):
-        files = util.listFiles(os.getcwd(), ext=".csv")
+        files = listFiles(os.getcwd(), ext=".csv")
         f = XafsData(os.path.join(os.getcwd(), xafsfile))
         print(f"initial file:{files[0]}")
         print(f"final file  :{files[-1]}")

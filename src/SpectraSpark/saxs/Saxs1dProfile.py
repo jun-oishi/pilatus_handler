@@ -4,9 +4,8 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 from matplotlib.colors import Colormap
-import util
-from util import ArrayLike
-import XafsData
+from ..util import listFiles, loadCsv, ArrayLike
+from ..xafs.XafsData import XafsData
 import json
 from copy import deepcopy
 
@@ -93,7 +92,7 @@ class Saxs1dProfile:
         parampath: str = "",
         paramkey="",
     ) -> "Saxs1dProfile":
-        csv = util.loadCsv(path, usecols=(0, 1))
+        csv = loadCsv(path, usecols=(0, 1))
         if axis == "r":
             if check_header and not "r" in csv.header[0]:
                 raise ValueError(
@@ -223,7 +222,7 @@ class SaxsSeries:
         self.dir = os.path.join(os.getcwd(), dir)
 
         filePaths = [
-            os.path.join(self.dir, name) for name in util.listFiles(self.dir, ext=ext)
+            os.path.join(self.dir, name) for name in listFiles(self.dir, ext=ext)
         ]
         if len(filePaths) == 0:
             raise FileNotFoundError(f"no {ext} file in {self.dir}")
@@ -543,9 +542,9 @@ class DafsData(SaxsSeries):
         """
         super().__init__(dir, axis="theta")
         xafsfile = os.path.join(dir, xafsfile)
-        self.xafsfile = XafsData.XafsData(xafsfile, cols=xafscols)
+        self.xafsfile = XafsData(xafsfile, cols=xafscols)
         self.name = self.xafsfile.sampleinfo.split(" ")[0]
-        if self.xafsfile.energy.size != len(util.listFiles(self.dir, ext=".csv")):
+        if self.xafsfile.energy.size != len(listFiles(self.dir, ext=".csv")):
             raise ValueError("inconsistent number of files. incorrect xafs file ?")
         self._i0: np.ndarray = self.xafsfile._data[:, 0]
         self._mu = np.log(self._i0 / self.xafsfile._data[:, 1])

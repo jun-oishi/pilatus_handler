@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "SpectraSpark"
+version = "0.0.1"
+authors = [
+    {name="Junnosuke Oishi"},
+]
+description = "X-ray scattering and absorption profile analysis tools"
+# license = "MIT"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy >= 1.25",
+    "scipy >= 1.0",
+    "opencv-python-headless >= 4.0",
+    "matplotlib >= 3.7",
+    "PySimpleGUI >= 4.60",
+    "pyqt5 >= 5.15",
+    "tqdm >= 4.66"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["*"]
+exclude = []

@@ -1,6 +1,4 @@
-from Saxs2dProfile import Saxs2dProfile
 import PySimpleGUI as sg
-import util
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk  # type: ignore
 from matplotlib.figure import Figure
@@ -8,8 +6,10 @@ from matplotlib.axes import Axes
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
+from ..util import getLogger, DEBUG
+from ..saxs.Saxs2dProfile import Saxs2dProfile
 
-logger = util.getLogger(__name__, util.DEBUG)
+logger = getLogger(__name__, DEBUG)
 
 TMPDIR = "tmp/"
 

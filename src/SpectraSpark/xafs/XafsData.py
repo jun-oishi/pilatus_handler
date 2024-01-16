@@ -1,11 +1,9 @@
 import numpy as np
 from scipy import signal, optimize
-import util
 import re
 
 __version__ = "0.1.1"
 
-_logger = util.getLogger(__name__)
 
 _EMPTY = np.array([])
 
