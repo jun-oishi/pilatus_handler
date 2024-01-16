@@ -8,9 +8,9 @@ from logging import config as logging_config
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 import os
 import numpy as np
-from typing import Union
+from typing import TypeAlias, Union
 
-ArrayLike = Union[list[float], tuple[float, ...], np.ndarray]
+ArrayLike: TypeAlias = Union[list[float], tuple[float, ...], np.ndarray]
 
 __version__ = "0.0.1"
 

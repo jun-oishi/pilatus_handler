@@ -5,9 +5,12 @@ from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 from matplotlib.colors import Colormap
 from ..util import listFiles, loadCsv, ArrayLike
+from typing import Iterable
 from ..xafs.XafsData import XafsData
 import json
 from copy import deepcopy
+
+# pyright: reportInvalidStringEscapeSequence=false
 
 __version__ = "0.1.1"
 
@@ -96,7 +99,7 @@ class Saxs1dProfile:
         if axis == "r":
             if check_header and not "r" in csv.header[0]:
                 raise ValueError(
-                    f"specifiead axis `{axis}` not match loaded aixs `{csv.header[0]}`"
+                    f"specified axis `{axis}` not match loaded axis `{csv.header[0]}`"
                 )
             ret = cls(r=csv.data[:, 0], i=csv.data[:, 1])
             parampath = os.path.join(os.path.dirname(path), parampath)
@@ -104,13 +107,13 @@ class Saxs1dProfile:
         elif axis == "theta":
             if check_header and not "theta" in csv.header[0]:
                 raise ValueError(
-                    f"specifiead axis `{axis}` not match loaded aixs `{csv.header[0]}`"
+                    f"specified axis `{axis}` not match loaded axis `{csv.header[0]}`"
                 )
             ret = cls(theta=csv.data[:, 0], i=csv.data[:, 1])
         elif axis == "q":
             if check_header and not ("q" in csv.header[0] or "Q" in csv.header[0]):
                 raise ValueError(
-                    f"specifiead axis `{axis}` not match loaded aixs `{csv.header[0]}`"
+                    f"specified axis `{axis}` not match loaded axis `{csv.header[0]}`"
                 )
             ret = cls(q=csv.data[:, 0], i=csv.data[:, 1])
         else:
@@ -356,7 +359,7 @@ class SaxsSeries:
         y: np.ndarray = _EMPTY,
         y_label: str = "file number",
         y_ticks: ArrayLike = _EMPTY,
-        y_tick_labels: list[str] = [],
+        y_tick_labels: Iterable[str] = [],
         y_lim=(np.nan, np.nan),
         n_levels: int = 128,
         vmin=np.nan,

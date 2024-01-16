@@ -104,7 +104,7 @@ class Saxs2dProfile:
     _AngleOfTiltPlane : float [deg]
     _AngleOfTilt : float [deg]
     _AngleOfRotation : float [deg]
-    _PolarisationFactor : float
+    _PolarizationFactor : float
     """
 
     DEFAULT_MARK_COLOR = GREEN
@@ -119,7 +119,7 @@ class Saxs2dProfile:
         self._AngleOfTiltPlane: float = np.nan  # deg
         self._AngleOfTilt: float = np.nan  # deg
         self._AngleOfRotation: float = np.nan  # deg
-        self._PolarisationFactor: float = np.nan
+        self._PolarizationFactor: float = np.nan
 
     def loadFit2dPar(self, path: str) -> None:
         """fit2dのパラメタファイルからパラメタを読み込む"""
@@ -160,9 +160,9 @@ class Saxs2dProfile:
             if m:
                 self._AngleOfRotation = float(m.group(1))
                 continue
-            m = re.match(r"Polarisation factor =[ ]+(\d+\.\d+)", line)
+            m = re.match(r"Polarization factor =[ ]+(\d+\.\d+)", line)
             if m:
-                self._PolarisationFactor = float(m.group(1))
+                self._PolarizationFactor = float(m.group(1))
                 continue
         return
 
@@ -497,8 +497,8 @@ class TiltCameraCoordinate:
             color value to draw peak
         thickness: int
         """
-        a, b, ellippse_center = self.ellipseParam(theta, plane="camera")
-        return _ellipse(canvas, ellippse_center, (2 * a, 2 * b), 0, value, thickness)
+        a, b, ellipse_center = self.ellipseParam(theta, plane="camera")
+        return _ellipse(canvas, ellipse_center, (2 * a, 2 * b), 0, value, thickness)
 
     def drawPeaks(
         self,
@@ -600,7 +600,7 @@ class TiltedSaxsImage(Saxs2dProfile):
 
 class DeterminCameraParam:
     """カメラパラメタをインタラクティブに決定するクラス
-    Attronibutes
+    Attributes
     ------------
         __raw (np.ndarray) : 画像データ
         energy (float) : X線のエネルギー [eV]
@@ -668,7 +668,7 @@ class DeterminCameraParam:
         """
         return 2 * np.arcsin(q * (1_240 / self.energy) / (4 * np.pi))
 
-    def run(self, q: np.ndarray | str, imgpath: str = "") -> TiltCameraCoordinate:
+    def run(self, q: np.ndarray | str, img_path: str = "") -> TiltCameraCoordinate:
         """インタラクティブにカメラパラメタを決定する
         TODO : 操作を終了しなくても(グラフは表示されたまま)処理が流れてしまう
 
@@ -676,7 +676,7 @@ class DeterminCameraParam:
         ----------
         q : np.ndarray | str
             描画するピークのq値[nm^-1]の配列または"agbeh"
-        imgpath : str, optional
+        img_path : str, optional
             空文字列以外が与えられれば終了時にそのパスに画像を保存する, by default ""
 
         Returns
@@ -772,8 +772,8 @@ class DeterminCameraParam:
 
         fig.show()
 
-        if imgpath:
-            fig.savefig(imgpath, dpi=300)
+        if img_path:
+            fig.savefig(img_path, dpi=300)
 
         return coord
 
@@ -837,7 +837,7 @@ def tif2chi(
         profile.center = center
         profile.psi, profile.cameraLength = psi, cameraLength
         i, x = profile.radial_average()
-        param = f'param,"cener=({center[0]}, {center[1]})", cameraLength={cameraLength}px, psi={psi}deg'
+        param = f'param,"center=({center[0]}, {center[1]})", cameraLength={cameraLength}px, psi={psi}deg'
         labels = "theta[deg],i"
     elif kind == "patched":
         profile = PatchedSaxsImage.load_tiff(src, paramfile=paramfile)
@@ -945,7 +945,7 @@ def seriesIntegrate(
             print(f"\n{src} skipped because csv file already exists")
             no_error = False
         except Exception as e:
-            print(f"\n{src} skipped because error occured:")
+            print(f"\n{src} skipped because error occurred:")
             print("  ", e)
             no_error = False
 
