@@ -10,19 +10,4 @@ from .saxs.Saxs2dProfile import (
 )
 from .saxs.Saxs1dProfile import Saxs1dProfile, SaxsSeries, DafsData, saveHeatmap
 
-VERSION = "0.0.1"
-
-__all__ = [
-    "XafsData",
-    "DafsSpectrum",
-    "Saxs2dProfile",
-    "PatchedSaxsImage",
-    "TiltedSaxsImage",
-    "DeterminCameraParam",
-    "tif2chi",
-    "seriesIntegrate",
-    "Saxs1dProfile",
-    "SaxsSeries",
-    "DafsData",
-    "saveHeatmap",
-]
+__version__ = "0.0.1"
