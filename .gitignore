@@ -5,3 +5,7 @@ data/*
 ipynb
 __pycache__
 *.egg-info
+*.so
+*.o
+*.a
+*.out

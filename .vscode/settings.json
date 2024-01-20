@@ -1,0 +1,27 @@
+{
+    "cSpell.words": [
+        "agbeh",
+        "cppmod",
+        "dejavuserif",
+        "dtheta",
+        "Eiger",
+        "libeigen",
+        "libopencv",
+        "numba",
+        "Pilutus",
+        "pybind",
+        "splot",
+        "ttheta",
+        "vmax",
+        "vmin",
+        "xaxis",
+        "xlim",
+        "xtick",
+        "xticks",
+        "yaxis",
+        "ytick"
+    ],
+    "editor.formatOnPaste": true,
+    "editor.formatOnType": true,
+    "files.trimTrailingWhitespace": true,
+}
