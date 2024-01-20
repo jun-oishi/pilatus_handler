@@ -307,8 +307,6 @@ class PatchedSaxsImage(Saxs2dProfile):
         ----------
         axis : str
             "r" or "theta"
-        dtheta : float
-            bin width for theta axis, only used when axis="theta" [deg]
 
         Returns
         -------
@@ -952,7 +950,7 @@ def seriesIntegrate(
     print()
 
     if heatmap:
-        from Saxs1dProfile import saveHeatmap
+        from .Saxs1dProfile import saveHeatmap
 
         if not no_error:
             print("WARNING : some files skipped")
