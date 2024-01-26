@@ -515,10 +515,10 @@ class DafsData(SaxsSeries):
     """
     attributes
     ----------
-    xafsfile : XafsData
+    xafs_file : XafsData
         xafs file includes energy and i0 at each file
     name : str
-        sample name fetched from xafsfile
+        sample name fetched from xafs_file
     _i0 : np.ndarray
         intensity of incident beam at each energy [raw counts]
     _mu : np.ndarray
@@ -532,28 +532,28 @@ class DafsData(SaxsSeries):
         normalized intensity of scattered beam at each energy [raw counts / i0]
     """
 
-    def __init__(self, dir: str, xafsfile: str, *, xafscols=(3, 4, 5)):
+    def __init__(self, dir: str, xafs_file: str, *, xafs_cols=(3, 4, 5)):
         """load xafs file and fetch i0 and energy
         arguments
         ---------
         dir : str
             path to directory containing csv files
-        xafsfile : str
+        xafs_file : str
             relative path to xafs file from `dir`
-        xafscols : tuple[int, int]
+        xafs_cols : tuple[int, int]
             column numbers of i0 and i in xafs file
         """
         super().__init__(dir, axis="theta")
-        xafsfile = os.path.join(dir, xafsfile)
-        self.xafsfile = XafsData(xafsfile, cols=xafscols)
-        self.name = self.xafsfile.sampleinfo.split(" ")[0]
-        if self.xafsfile.energy.size != len(listFiles(self.dir, ext=".csv")):
+        xafs_file = os.path.join(dir, xafs_file)
+        self.xafs_file = XafsData(xafs_file, cols=xafs_cols)
+        self.name = self.xafs_file.sampleinfo.split(" ")[0]
+        if self.xafs_file.energy.size != len(listFiles(self.dir, ext=".csv")):
             raise ValueError("inconsistent number of files. incorrect xafs file ?")
-        self._i0: np.ndarray = self.xafsfile._data[:, 0]
-        self._mu = np.log(self._i0 / self.xafsfile._data[:, 1])
-        self._fl = self.xafsfile._data[:, 2] / self._i0
+        self._i0: np.ndarray = self.xafs_file._data[:, 0]
+        self._mu = np.log(self._i0 / self.xafs_file._data[:, 1])
+        self._fl = self.xafs_file._data[:, 2] / self._i0
         self._i = self._i / self._i0.reshape(-1, 1)
-        self._energy: np.ndarray = self.xafsfile.energy
+        self._energy: np.ndarray = self.xafs_file.energy
         self.n_e: int = self._energy.size
 
         _lambda = 1_240 / self._energy.reshape(-1, 1)
