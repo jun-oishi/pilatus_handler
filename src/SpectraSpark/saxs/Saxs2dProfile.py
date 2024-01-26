@@ -2,7 +2,7 @@
 
 import numpy as np
 import cv2
-import os
+import os, warnings
 from matplotlib import pyplot as plt
 from matplotlib.widgets import Slider, Button
 from matplotlib.axes import Axes
@@ -110,6 +110,7 @@ class Saxs2dProfile:
     DEFAULT_MARK_COLOR = GREEN
 
     def __init__(self, raw: np.ndarray):
+        warnings.warn("Saxs2dProfile() is deprecated.", DeprecationWarning)
         self._raw: np.ndarray = raw
         self.__center: tuple[float, float] = (np.nan, np.nan)
         self._mask: np.ndarray = np.ones_like(raw, dtype=bool)
@@ -209,6 +210,7 @@ class Saxs2dProfile:
         -------
         Saxs2dProfile
         """
+        warnings.warn("Saxs2dProfile.load_tiff is deprecated", DeprecationWarning)
         if not os.path.exists(path):
             raise FileNotFoundError("")
         if path[-4:] != ".tif":
