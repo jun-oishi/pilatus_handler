@@ -1,4 +1,4 @@
-import os, re, json
+import os, re, json, warnings
 from typing import Tuple
 import numpy as np
 import cv2
@@ -19,12 +19,6 @@ class P2MImage:
         self.__camera_length = np.nan  # mm
         self.__wave_length = np.nan  # nm
         self.__center = (np.nan, np.nan)  # x, y [px]
-        if param == "":
-            defaultpath = os.path.join(os.path.dirname(src), "param")
-            if os.path.exists(defaultpath + ".par"):
-                self.load_fit2d_par(defaultpath + ".par")
-            elif os.path.exists(defaultpath + ".json"):
-                self.load_json_par(defaultpath + ".json")
 
         if param != "":
             param = os.path.join(os.path.dirname(src), param)
@@ -32,6 +26,17 @@ class P2MImage:
                 self.load_fit2d_par(param)
             elif param.endswith(".json"):
                 self.load_json_par(param)
+        else:
+            defaultpath = os.path.join(os.path.dirname(src), "param")
+            if os.path.exists(defaultpath + ".par"):
+                self.load_fit2d_par(defaultpath + ".par")
+                print(f"param file {defaultpath}.par loaded")
+            elif os.path.exists(defaultpath + ".json"):
+                self.load_json_par(defaultpath + ".json")
+                print(f"param file {defaultpath}.json loaded")
+            else:
+                warnings.warn("param file not loaded", category=RuntimeWarning)
+
         return
 
     @property
@@ -40,6 +45,8 @@ class P2MImage:
 
     def load_fit2d_par(self, src: str):
         """fit2dのパラメタファイルからパラメタを読み込む"""
+        if not os.path.exists(src):
+            raise FileNotFoundError(f"{src} is not found.")
         lines = []
         with open(src) as f:
             lines = f.readlines()
@@ -68,6 +75,8 @@ class P2MImage:
         return
 
     def load_json_par(self, src):
+        if not os.path.exists(src):
+            raise FileNotFoundError(f"{src} is not found.")
         with open(src) as f:
             data = json.load(f)
         self.__pixel_size = data["pixel_size"] / 1000
@@ -83,8 +92,10 @@ class P2MImage:
     def __px2q(self) -> float:
         return 2 * np.pi / self.__wave_length / self.__camera_length * self.__pixel_size
 
-    def toChiFile(self, dst: str):
-        """chiファイルを出力する"""
+    def toCsv(self, dst: str):
+        """動径平均を計算してcsvファイルに出力する
+        ヘッダは3行 `#src\n#center=(x,y),px2q=値\n,#q [nm^-1],i [a.u.]`
+        """
         i, q = self.radial_average()
         header = "\n".join(
             [
@@ -98,6 +109,8 @@ class P2MImage:
     def toSaxs2d(self) -> Saxs2d:
         """Saxs2dに変換"""
         px2q = self.__px2q()
+        if np.isnan(px2q):
+            raise RuntimeError("param file not loaded")
         mask = self.__raw < 2
         i = self.__raw.astype(np.float32)
         i[mask] = np.nan
@@ -112,7 +125,9 @@ class P2MImage:
     def seriesIntegrate(
         cls, dir: str, param: str, dst: str = "", overwrite: bool = False
     ):
-        """指定ディレクトリ内の画像すべてを積分して1ファイルに出力する"""
+        """指定ディレクトリ内の画像すべてを積分して1ファイルに出力する
+        ヘッダは1行 `q[nm^-1],ファイル名1,ファイル名2,...`
+        """
         dir = os.path.dirname(dir)
         if not os.path.exists(dir):
             raise FileNotFoundError(f"{dir} is not found.")

@@ -19,6 +19,10 @@ class Saxs2d:
     def center(self) -> Tuple[float, float]:
         return self.__center
 
+    @property
+    def px2q(self) -> float:
+        return self.__px2q
+
     def radial_average(
         self, q_min: float = 0, q_max: float = np.inf
     ) -> Tuple[np.ndarray, np.ndarray]:
@@ -40,3 +44,7 @@ class Saxs2d:
 
         q_bin = r_bin * self.__px2q
         return i, (q_bin[:-1] + q_bin[1:]) / 2
+
+    def rotate(self, angle: float):
+        """画像を回転する"""
+        raise NotImplementedError

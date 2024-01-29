@@ -1,13 +1,12 @@
+import os, json, warnings
+from typing import Iterable
 import numpy as np
-import os
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 from matplotlib.colors import Colormap
 from ..util import listFiles, loadCsv, ArrayLike
-from typing import Iterable
 from ..xafs.XafsData import XafsData
-import json
 from copy import deepcopy
 
 # pyright: reportInvalidStringEscapeSequence=false
@@ -45,6 +44,7 @@ class Saxs1dProfile:
         theta: np.ndarray = _EMPTY,
         q: np.ndarray = _EMPTY,
     ):
+        warnings.warn("Saxs1dProfile is deprecated", DeprecationWarning)
         self._r: np.ndarray = r
         self._theta: np.ndarray = theta
         self._q: np.ndarray = q
@@ -200,6 +200,7 @@ class SaxsSeries:
     def __init__(
         self, path: str, *, axis="r", ext=".csv", parampath="", paramkey="saxs"
     ):
+        warnings.warn("SaxsSeries is deprecated", DeprecationWarning)
         if os.path.isdir(path):
             self.loadFiles(
                 path, axis=axis, ext=ext, parampath=parampath, paramkey=paramkey
@@ -501,6 +502,7 @@ class SaxsSeries:
     def squash(
         cls, dir: str, *, axis="r", ext=".csv", parampath="", paramkey="saxs"
     ) -> str:
+        warnings.warn("SaxsSeries.squash is deprecated", DeprecationWarning)
         obj = cls(dir, axis=axis, ext=ext, parampath=parampath, paramkey=paramkey)
         if obj.q.size == 0:
             raise ValueError("data must be in q")
@@ -543,6 +545,7 @@ class DafsData(SaxsSeries):
         xafs_cols : tuple[int, int]
             column numbers of i0 and i in xafs file
         """
+        warnings.warn("DafsData is deprecated", DeprecationWarning)
         super().__init__(dir, axis="theta")
         xafs_file = os.path.join(dir, xafs_file)
         self.xafs_file = XafsData(xafs_file, cols=xafs_cols)
@@ -668,6 +671,7 @@ def saveHeatmap(
     FileExistsError
         _description_
     """
+    warnings.warn("saveHeatmap is deprecated", DeprecationWarning)
     dist = dir + ".png"
     if not overwrite and os.path.exists(dist):
         raise FileExistsError(f"{dir}.png already exists")
