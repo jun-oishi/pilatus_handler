@@ -9,3 +9,10 @@ __pycache__
 *.o
 *.a
 *.out
+*.dat
+*.log
+*.csv
+*.json
+*.yaml
+*.xtl
+!.vscode/*.json

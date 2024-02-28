@@ -23,6 +23,15 @@
         "ytick"
     ],
     "editor.formatOnPaste": true,
-    "editor.formatOnType": true,
+    "editor.formatOnType": false,
     "files.trimTrailingWhitespace": true,
-}
+    "C_Cpp.files.exclude": {
+        "**": true,
+        "${workspaceFolder}/src/**": false,
+    },
+    "files.associations": {
+        "*.tpl": "html",
+        "stdout": "plaintext",
+        "ostream": "cpp"
+    },
+    }
