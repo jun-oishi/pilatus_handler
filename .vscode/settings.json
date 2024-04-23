@@ -29,6 +29,11 @@
         "**": true,
         "${workspaceFolder}/src/**": false,
     },
+    "[python]": {
+        "editor.formatOnSave": false,
+        "editor.formatOnPaste": false,
+        "editor.formatOnType": false
+    },
     "files.associations": {
         "*.tpl": "html",
         "stdout": "plaintext",

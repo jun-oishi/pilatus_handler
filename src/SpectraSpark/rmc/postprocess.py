@@ -42,9 +42,19 @@ MAX_NN = len(NN_DIST) - 1
 A_MG = 3.21  # Angstrom
 C_MG = 5.21  # Angstrom
 
+_EMPTY = np.empty(0, dtype=float)
 
 class Config:
-    def __init__(self, src: str, gamma: int = 120):
+    def __init__(self, *, src: str="", gamma: int = 120,
+                 La:int=0, Lb:int=0, pos_ab:np.ndarray=_EMPTY):
+        if src != "":
+            self.load(src, gamma=gamma)
+        elif pos_ab.size > 0:
+            self.set_data(La, Lb, pos_ab)
+
+        self.rdf = np.empty(len(NN_DIST) - 1, dtype=float)
+
+    def load(self, src: str, gamma:int = 120):
         self.src = src
         header = open(src).readline().strip()
         self.raw_header = header
@@ -62,9 +72,20 @@ class Config:
         if gamma == 60:  # xyが120degの格子座標に変換して持つ
             self.y = self.Ly - 1 - self.y
 
-        self.rdf = np.empty(len(NN_DIST) - 1, dtype=float)
         # neighbors[i][j] = [k1, k2, ...]  i番目のクラスタのj近接のクラスタのインデックスのリスト
         self.neighbors = [[[] for _nn in range(MAX_NN)] for _n in range(self.n)]
+
+
+    def set_data(self, La:int, Lb:int, pos_ab:np.ndarray):
+        self.Lx = La
+        self.Ly = Lb
+        self.n = len(pos_ab)
+        self.x, self.y = pos_ab[:,0], pos_ab[:,1]
+        self.expfile = ""
+
+        # neighbors[i][j] = [k1, k2, ...]  i番目のクラスタのj近接のクラスタのインデックスのリスト
+        self.neighbors = [[[] for _nn in range(MAX_NN)] for _n in range(self.n)]
+
 
     def dist(self, i, j, periodic=True):
         dx = self.x[i] - self.x[j]
