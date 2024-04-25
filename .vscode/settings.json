@@ -8,6 +8,7 @@
         "Eiger",
         "libeigen",
         "libopencv",
+        "luae",
         "numba",
         "Pilutus",
         "pybind",
@@ -37,6 +38,10 @@
     "files.associations": {
         "*.tpl": "html",
         "stdout": "plaintext",
-        "ostream": "cpp"
+        "ostream": "cpp",
+        "dense": "cpp",
+        "fstream": "cpp",
+        "iomanip": "cpp",
+        "chrono": "cpp"
     },
     }
