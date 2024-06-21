@@ -16,10 +16,14 @@ dependencies = [
     "scipy >= 1.0",
     "opencv-python-headless >= 4.0",
     "matplotlib >= 3.7",
-    "PySimpleGUI >= 4.60",
     "pyqt5 >= 5.15",
     "tqdm >= 4.66",
     "pybind11 >= 2.11",
+]
+
+[project.optional-dependencies]
+dev = [
+    "jupyter >= 1.0.0"
 ]
 
 [tool.setuptools.packages.find]
