@@ -1,6 +1,6 @@
 import numpy as np
 import warnings
-from ..util import *
+from SpectraSpark.util import listFiles, write_json, ArrayLike
 from typing import Tuple
 
 

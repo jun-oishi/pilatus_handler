@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import overload
 import tqdm
 import re
-from ..util import listFiles
+from SpectraSpark.util import listFiles
 
 # matplotlib.use("Qt5Agg")
 

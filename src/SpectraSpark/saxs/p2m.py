@@ -3,8 +3,8 @@ from typing import Tuple
 import numpy as np
 import cv2
 import tqdm
-from ..util import listFiles
-from .qi2d import Saxs2d
+from SpectraSpark.util import listFiles
+from SpectraSpark.saxs.qi2d import Saxs2d
 
 
 class P2MImage:

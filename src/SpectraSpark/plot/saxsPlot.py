@@ -5,8 +5,8 @@ from matplotlib.axes import Axes
 from matplotlib.colors import Colormap
 from typing import Iterable
 
-from ..util import ArrayLike
-from ..saxs import Saxs2d, Saxs1d, Saxs1dSeries
+from SpectraSpark.util import ArrayLike
+from SpectraSpark.saxs import Saxs2d, Saxs1dSeries
 
 _EMPTY = np.array([])
 
@@ -62,7 +62,7 @@ def trSaxsHeatmap(
 
     if secondary_xaxis:
         top_ax = ax.secondary_xaxis("top", functions=(_q2d, _d2q))
-        top_ax.set_xlabel("$d\;[\mathrm{nm}]$")
+        top_ax.set_xlabel(r"$d\;[\mathrm{nm}]$")
 
     if len(y_ticks) != 0:
         ax.set_yticks(y_ticks, y_tick_labels)
@@ -81,9 +81,9 @@ def trSaxsHeatmap(
             aspect=1 / cbar_fraction,
         )
         if logscale:
-            cbar.set_label("$\ln[I(q)]\;[a.u.]$")
+            cbar.set_label(r"$\ln[I(q)]\;[a.u.]$")
         else:
-            cbar.set_label("$I(q)\;[a.u.]$")
+            cbar.set_label(r"$I(q)\;[a.u.]$")
 
     return ax
 
@@ -174,18 +174,18 @@ def showQIimage(
             aspect=1 / cbar_fraction,
         )
         if logscale:
-            cbar.set_label("$\ln[I(q)]\;[a.u.]$")
+            cbar.set_label(r"$\ln[I(q)]\;[a.u.]$")
         else:
-            cbar.set_label("$I(q)\;[a.u.]$")
+            cbar.set_label(r"$I(q)\;[a.u.]$")
 
-    ax.set_xlabel("$q\;[\mathrm{nm}^{-1}]$")
-    ax.set_ylabel("$q\;[\mathrm{nm}^{-1}]$")
+    ax.set_xlabel(r"$q\;[\mathrm{nm}^{-1}]$")
+    ax.set_ylabel(r"$q\;[\mathrm{nm}^{-1}]$")
 
     if secondary_axis:
         sx_x = ax.secondary_xaxis("top", functions=(_q2d, _d2q))
-        sx_x.set_xlabel("$d\;[\mathrm{nm}]$")
+        sx_x.set_xlabel(r"$d\;[\mathrm{nm}]$")
         sx_y = ax.secondary_yaxis("right", functions=(_q2d, _d2q))
-        sx_y.set_ylabel("$d\;[\mathrm{nm}]$")
+        sx_y.set_ylabel(r"$d\;[\mathrm{nm}]$")
 
         if len(sx_ticks) != 0:
             sx_xticks = sx_ticks

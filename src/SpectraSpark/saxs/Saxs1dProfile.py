@@ -5,8 +5,8 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 from matplotlib.colors import Colormap
-from ..util import listFiles, loadCsv, ArrayLike
-from ..xafs.XafsData import XafsData
+from SpectraSpark.util import listFiles, loadCsv, ArrayLike
+from SpectraSpark.xafs.XafsData import XafsData
 from copy import deepcopy
 
 # pyright: reportInvalidStringEscapeSequence=false

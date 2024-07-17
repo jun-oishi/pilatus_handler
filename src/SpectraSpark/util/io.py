@@ -1,37 +1,8 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
+#! /usr/bin/python3
 
-from logging import getLogger as __getLogger
-from logging import StreamHandler as __StreamHandler
-from logging import Formatter as __Formatter
-from logging import config as logging_config
-from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 import os
 import numpy as np
-from typing import TypeAlias, Union
-
-ArrayLike: TypeAlias = Union[list[float], tuple[float, ...], np.ndarray]
-
-__version__ = "0.0.1"
-
-__FORMATTER = __Formatter(
-    "%(name)s [%(levelname)s]: %(message)s from %(filename)s:%(lineno)d"
-)
-
-__DEFAULT_LEVEL = DEBUG
-
-
-def getLogger(name: str, level=__DEFAULT_LEVEL):
-    logger = __getLogger(name=name)
-    logger.setLevel(level)
-    handler = __StreamHandler()
-    handler.setLevel(level)
-    handler.setFormatter(__FORMATTER)
-    logger.setLevel(level)
-    logger.addHandler(handler)
-    logger.propagate = False
-    return logger
-
+import json
 
 def listFiles(dir: str, *, ext="") -> list[str]:
     """指定ディレクオリ直下のファイル名をソートして返す
@@ -134,3 +105,20 @@ def loadCsv(
         )
 
     return CsvFile(data, header.split(delimiter))
+
+def _format_for_json(data, special_float_to=None):
+    """nan, infをjsonで書き込めるように変換する"""
+    for key in data:
+        if isinstance(data[key], dict):
+            data[key] = _format_for_json(data[key], special_float_to)
+        elif isinstance(data[key], float) and not np.isfinite(data[key]):
+            data[key] = special_float_to
+        elif hasattr(data[key], "__len__") and isinstance(data[key][0], float):
+            data[key] = [special_float_to if not np.isfinite(x) else x for x in data[key]]
+    return data
+
+def write_json(path: str, data: dict, indent=2):
+    """jsonファイルに書き込む"""
+    data = _format_for_json(data, special_float_to=None)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=indent)
