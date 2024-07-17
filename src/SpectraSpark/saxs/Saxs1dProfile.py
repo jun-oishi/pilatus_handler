@@ -230,6 +230,7 @@ class SaxsSeries:
         ]
         if len(filePaths) == 0:
             raise FileNotFoundError(f"no {ext} file in {self.dir}")
+        print(f"{len(filePaths)} files found")
 
         if ext == ".csv":
             files = [Saxs1dProfile.load_csv(f, axis=axis) for f in filePaths]
@@ -237,6 +238,11 @@ class SaxsSeries:
             files = [Saxs1dProfile.load_chi(f, axis=axis) for f in filePaths]
         else:
             raise ValueError("unsupported file type: `csv` and `chi` are supported")
+
+        _len = len(files[0].i)
+        for i, f in enumerate(files[1:]):
+            if len(f.i) != _len:
+                raise ValueError(f"{i+1}th file has different length of data")
 
         self._r, self._theta = _EMPTY, _EMPTY
         if axis == "r":

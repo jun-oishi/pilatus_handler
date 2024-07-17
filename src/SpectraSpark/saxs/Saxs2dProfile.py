@@ -205,6 +205,10 @@ class Saxs2dProfile:
         ----------
         path: str
             path to tiff file
+        flip: str, optional
+            "h" or "horizontal" to flip image horizontally, by default ""
+        paramfile: str, optional
+            path to fit2d parameter file, by default ""
 
         Returns
         -------
@@ -886,10 +890,12 @@ def seriesIntegrate(
     ----------
     dir : str
         ディレクトリへのパス
-    kind : str
-        tilted or patched
+    paramfile : str, optional
+        path to fit2d parameter file, by default ""
     center : tuple
         ビームセンターの座標(x[px],y[px]), by default (np.nan, np.nan)
+    kind : str
+        tilted or patched
     cameraLength : _type_, optional
         カメラ長[px], by default np.nan
     psi : float, optional

@@ -9,6 +9,7 @@
         "libeigen",
         "libopencv",
         "luae",
+        "nopython",
         "numba",
         "Pilutus",
         "pybind",
