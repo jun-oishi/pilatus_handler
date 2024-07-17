@@ -1,5 +1,5 @@
 import numpy as np
-import warnings
+import warnings, re, os
 from SpectraSpark.util import listFiles, write_json, ArrayLike
 from typing import Tuple
 from numba import jit
@@ -39,13 +39,16 @@ def _radial_average(img, center_x, center_y, threshold=2):
     for y in range(height):
         r_mesh[y, :] = np.sqrt(dx_sq + (y - center_y)**2)
 
-    cnt = np.zeros(int(r_mesh.max()+1), dtype=np.int64)
-    i   = np.zeros(int(r_mesh.max()+1), dtype=np.float64)
+    min_r = int(r_mesh.min())
+    max_r = int(r_mesh.max())+1
+    r_range=max_r-min_r+1
+    cnt = np.zeros(r_range, dtype=np.int64)
+    i   = np.zeros(r_range, dtype=np.float64)
     for x in range(width):
         for y in range(height):
             if not img[y, x] >= threshold:
                 continue
-            idx = int(r_mesh[y, x])
+            idx = int(r_mesh[y, x]) - min_r
             cnt[idx] += 1
             i[idx] += img[y, x]
 
@@ -55,7 +58,7 @@ def _radial_average(img, center_x, center_y, threshold=2):
         else:
             i[idx] = 0
 
-    r = 0.5 + np.arange(len(i))
+    r = min_r + 0.5 + np.arange(len(cnt))
     return r, i
 
 def _r2q(r, camera_length, px_size=PILATUS_PX_SIZE, wave_length=1.000):
@@ -76,10 +79,21 @@ def _r2q(r, camera_length, px_size=PILATUS_PX_SIZE, wave_length=1.000):
     _theta = np.arctan(_tan) * 0.5
     return 4 * np.pi / (wave_length*0.1) * np.sin(_theta)
 
-def series_integrate(dir, *,
-                     center=(np.nan,np.nan), camera_length=np.nan,
-                     wave_length=np.nan, px_size=PILATUS_PX_SIZE,
-                     dst="", overwrite=False):
+def file_integrate(file:str, **kwargs):
+    """SAXS画像を積分する
+
+    see `saxs.series_integrate`
+    """
+    kwargs['verbose'] = False
+    series_integrate(file, **kwargs)
+
+def series_integrate(src: list[str]|str, *,
+                     center=(np.nan,np.nan),
+                     camera_length=np.nan, wave_length=np.nan,
+                     px_size=np.nan, detecter="",
+                     slope=np.nan, intercept=np.nan,
+                     flip='vertical',
+                     dst="", overwrite=False, verbose=True):
     """SAXS画像の系列を積分する
 
     Parameters
@@ -87,52 +101,109 @@ def series_integrate(dir, *,
     dir : str
         画像ファイルのディレクトリ
     """
-    if not os.path.isdir(dir):
-        raise FileNotFoundError(f"{dir} is not found.")
+    files:list[str] = []
+    if isinstance(src, str):
+        if src.endswith(".tif"):
+            dst = dst if dst else re.sub(r"\.tif$", ".csv", src)
+            files = [src]
+        else:
+            if not os.path.isdir(src):
+                raise FileNotFoundError(f"{src} is not found.")
+            files = [os.path.join(src, f) for f in listFiles(src, ext=".tif")]
+            dst = dst if dst else src + ".csv"
+    else:
+        for file in src:
+            if not file.endswith(".tif"):
+                raise ValueError("Unsupported file format: only .tif is supported")
+        if len(dst) == 0:
+            raise ValueError("dst to save results must be set")
+        files=src
 
-    files = listFiles(dir, ext=".tif")
     n_files = len(files)
     if n_files == 0:
-        raise FileNotFoundError(f"No tif files in {dir}.")
+        raise FileNotFoundError(f"No tif files in {src}.")
 
-    bar = tqdm.tqdm(total=n_files)
+    if verbose:
+        bar = tqdm.tqdm(total=n_files)
 
-    dst = params["dst"] if dst else dir + "_integrated.csv"
     if not overwrite and os.path.exists(dst):
         raise FileExistsError(f"{dst} is already exists.")
 
     i_all = []
     headers = ["q[nm^-1]"]
 
-    file = os.path.join(dir, files[0])
-    img = cv2.imread(file, cv2.IMREAD_UNCHANGED)
-    height, width = img.shape
-    r, i = _radial_average(img, center[0], center[1])
-    q = _r2q(r, camera_length, px_size, wave_length)
-    i_all.append(i)
-    headers.append(os.path.basename(files[0]))
-    bar.update(1)
-    for file in files[1:]:
-        img = cv2.imread(os.path.join(dir,file), cv2.IMREAD_UNCHANGED)
+    if detecter in ('pilatus', 'PILATUS'):
+        px_size = PILATUS_PX_SIZE
+    elif detecter in ('eiger', 'EIGER'):
+        px_size = EIGER_PX_SIZE
+    elif detecter == '':
+        if np.isnan(px_size):
+            raise ValueError("either `px_size` or `detecter` must be set")
+    else:
+        raise ValueError(f'unrecognized detecter `{detecter}`')
+
+    calibration = 'none'
+    if camera_length > 0 and wave_length > 0:
+        calibration = 'geometry'
+    elif not np.isnan(slope) and not np.isnan(intercept):
+        calibration = 'linear_regression'
+    else:
+        warnings.warn("no valid calibration parameter given")
+
+    height, width = cv2.imread(files[0], cv2.IMREAD_UNCHANGED).shape
+    r, i = np.array([]), np.array([])
+    if verbose:
+        bar.update(1)
+    for file in files:
+        img = cv2.imread(file, cv2.IMREAD_UNCHANGED)
         if img.shape != (height, width):
             raise ValueError(f"Image size is not match. {file}")
+        if 'v' in flip:
+            img = np.flipud(img)
+        if 'h' in flip:
+            img = np.fliplr(img)
         r, i = _radial_average(img, center[0], center[1])
         i_all.append(i)
         headers.append(os.path.basename(file))
-        bar.update(1)
+        if verbose:
+            bar.update(1)
+
+    if calibration == 'geometry':
+        q = _r2q(r, camera_length, px_size, wave_length)
+    elif calibration == 'linear_regression':
+        q = intercept + slope * r
+    else:
+        q = r * px_size
+        headers[0] = "r[mm]"
 
     arr_out = np.hstack([q.reshape(-1, 1), np.array(i_all).T])
     np.savetxt(dst, arr_out, delimiter=",", header=",".join(headers))
 
-    paramfile = dst.replace(".csv", ".par")
-    with open(paramfile, "w") as f:
-        f.write(f"camera_length={camera_length}\n")
-        f.write(f"wave_length={wave_length}\n")
-        f.write(f"px_size={px_size}\n")
-        f.write(f"center_x={center[0]}\n")
-        f.write(f"center_y={center[1]}\n")
+    paramfile = dst.replace(".csv", "_params.json")
 
-    bar.close()
+    params={
+        'center_x[px]': center[0],
+        'center_y[px]': center[1],
+        'calibration_type': calibration,
+        'px_size[mm]': px_size,
+        'camera_length[mm]': camera_length,
+        'wave_length[AA]': wave_length,
+        'slope[nm^-1/px]': slope,
+        'intercept[nm^-1]': intercept,
+    }
+    if 'v' in flip and 'h' in flip:
+        flip = 'vertical and horizontal'
+    elif 'v' in flip:
+        flip = 'vertical'
+    elif 'h' in flip:
+        flip = 'horizontal'
+    else:
+        flip = 'none'
+    params['flip'] = flip
+    write_json(paramfile, params)
+
+    if verbose:
+        bar.close()
     return dst
 
 

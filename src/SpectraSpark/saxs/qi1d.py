@@ -12,16 +12,18 @@ class Saxs1d:
     __DEFAULT_DELIMITER = ","
 
     def __init__(self, i: np.ndarray, q: np.ndarray):
-        self.__i = i
+        self.__intensity = i
         self.__q = q
         return
 
     @property
     def i(self) -> np.ndarray:
-        return self.__i
+        """scattering intensity"""
+        return self.__intensity
 
     @property
     def q(self) -> np.ndarray:
+        """magnitude of scattering vector [nm^-1]"""
         return self.__q
 
     @classmethod
@@ -55,16 +57,42 @@ class Saxs1dSeries(Saxs1d):
 
     __DEFAULT_DELIMITER = ","
 
+    def __init__(self, src: str='', *, i: np.ndarray, q: np.ndarray):
+        if src:
+            self.loadMatFile(src)
+        elif q.shape[0] == i.shape[1]:
+            super().__init__(i, q)
+        else:
+            raise ValueError("src path or corresponding i and q needed")
+
     @classmethod
     def loadMatFile(cls, src: str) -> "Saxs1dSeries":
-        data = np.loadtxt(src, delimiter=cls.__DEFAULT_DELIMITER, skiprows=3)
+        data = np.loadtxt(src, delimiter=cls.__DEFAULT_DELIMITER)
         q = data[:, 0]
-        i = data[:, 1:].T  # q[i]がi番目のデータ
-        return cls(i, q)
+        i = data[:, 1:].T  # i[k]がk番目のプロファイル
+        print(f"{i.shape[0]} profiles along {q.shape[0]} q values loaded")
+        return cls(i=i, q=q)
 
     @classmethod
     def load(cls, src: str) -> "Saxs1dSeries":
+        """csvファイルを読み込んでSaxs1dSeriesを返す
+
+        qi2d.series_integrateで出力したファイルを読み込む
+        """
         return cls.loadMatFile(src)
+
+    def load_temperature(self, src: str, *, skiprows=1, usecol=4, delimiter=","):
+        """温度データを読み込む"""
+        values = np.loadtxt(src, delimiter=delimiter, skiprows=skiprows, usecols=usecol)
+        if len(values) < self.i.shape[0]:
+            raise ValueError("Temperature data size not match")
+        self.__temperature = values[:self.i.shape[0]]
+        return
+
+    @property
+    def t(self) -> np.ndarray:
+        """temperature history"""
+        return self.__temperature
 
     def peakHistory(self, q_min: float, q_max: float) -> np.ndarray:
         """ピーク強度の時系列を求める"""
@@ -81,7 +109,7 @@ class Saxs1dSeries(Saxs1d):
             y_label: str = "file number",
             y_ticks = [],
             y_tick_labels: list[str] = [],
-            y_lim=(np.nan, np.nan),
+            y_lim=(0, None),
             v_min=np.nan,
             v_max=np.nan,
             cmap: str | Colormap = "jet",
@@ -93,16 +121,21 @@ class Saxs1dSeries(Saxs1d):
             **kwargs
     ):
         """ヒートマップを保存する"""
-        warnings.filterwarnings("ignore", category=RuntimeWarning)
-        val = np.log10(self.i) if logscale else self.i
-        warnings.resetwarnings()
+        q = self.q.copy()
+        val = self.i.copy()
+        if logscale:
+            warnings.filterwarnings("ignore", category=RuntimeWarning)
+            val = np.log10(val)
+            warnings.resetwarnings()
+            isvalid = (np.isfinite(val).sum(axis=0)==val.shape[0])
+            q = q[isvalid]
+            val = val[:, isvalid]
 
-        idx = ((1 - (self.q < x_lim[0])) * (1 - (self.q > x_lim[1]))).astype(bool)
-        np.savetxt("debug", np.vstack([self.q, idx]).T, header="q filter")
-        val = val[:, idx]
-        q = self.q[idx]
+        idx = ((x_lim[0] < q) * (q < x_lim[1]))
+        val = val[y_lim[0]:y_lim[1], idx]
+        q = q[idx]
         y = np.arange(1, val.shape[0] + 1)
-        v_min = np.nanmin(val) if np.isnan(v_min) else v_min
+        v_min = np.nanmin(val) if np.isnan(v_min) else v_min  # TODO: bag fix
         v_max = np.nanmax(val) if np.isnan(v_max) else v_max
         levels = np.linspace(v_min, v_max, 256)
         cs = ax.contourf(q, y, val, levels=levels, cmap=cmap, extend=extend)
@@ -113,7 +146,8 @@ class Saxs1dSeries(Saxs1d):
                 fraction=cbar_fraction, pad=cbar_pad, aspect=cbar_aspect,
                 **kwargs
             )
-            cbar.set_label("$\log[I(q)]\;[a.u.]$" if logscale else "$I[q]\;[a.u.]$")
+            cbar.set_label(r"$\log[I(q)]\;[a.u.]$" if logscale \
+                           else r"$I[q]\;[a.u.]$")
 
         ax.set_xlabel(x_label)
         if len(y_ticks) != 0:
