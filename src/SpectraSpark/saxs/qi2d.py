@@ -104,6 +104,8 @@ def series_integrate(src: list[str]|str, *,
     files:list[str] = []
     if isinstance(src, str):
         if src.endswith(".tif"):
+            if not os.path.exists(src):
+                raise FileNotFoundError(f"{src} is not found.")
             dst = dst if dst else re.sub(r"\.tif$", ".csv", src)
             files = [src]
         else:
