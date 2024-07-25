@@ -1,14 +1,11 @@
 import numpy as np
 import warnings, re, os
 from SpectraSpark.util import listFiles, write_json, ArrayLike
+from SpectraSpark.constants import PILATUS_PX_SIZE, DETECTER_PX_SIZES
 from typing import Tuple
 from numba import jit
 import tqdm
 import cv2
-
-
-PILATUS_PX_SIZE = 0.172  # mm
-EIGER_PX_SIZE = 0.075  # mm
 
 @jit(nopython=True, cache=True)
 def _radial_average(img, center_x, center_y, threshold=2):
@@ -134,10 +131,8 @@ def series_integrate(src: list[str]|str, *,
     i_all = []
     headers = ["q[nm^-1]"]
 
-    if detecter in ('pilatus', 'PILATUS'):
-        px_size = PILATUS_PX_SIZE
-    elif detecter in ('eiger', 'EIGER'):
-        px_size = EIGER_PX_SIZE
+    if detecter.upper() in DETECTER_PX_SIZES:
+        px_size = DETECTER_PX_SIZES[detecter.upper()]
     elif detecter == '':
         if np.isnan(px_size):
             raise ValueError("either `px_size` or `detecter` must be set")

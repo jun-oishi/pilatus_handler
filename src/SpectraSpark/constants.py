@@ -10,6 +10,10 @@ c:Final = 299792458
 # 装置定数
 PILATUS_PX_SIZE:Final = 0.172 # mm
 EIGER_PX_SIZE:Final = 0.075  # mm
+DETECTER_PX_SIZES:Final = {
+    "PILATUS": PILATUS_PX_SIZE,
+    "EIGER": EIGER_PX_SIZE
+}
 
 # 標準物質
 Q_CeO2 = 2*np.pi / np.array([
