@@ -59,6 +59,19 @@ def _radial_average(img, center_x, center_y, threshold=2):
     r = min_r + 0.5 + np.arange(len(cnt))
     return r, i
 
+@jit(nopython=True, cache=True)
+def _mask_and_average(img, mask, center_x, center_y, threshold=2):
+    return _radial_average(img*mask, center_x, center_y, threshold)
+
+def _readmask(src:str):
+    if not os.path.exists(src):
+        raise FileNotFoundError(f"{src} is not found.")
+    mask = cv2.imread(src, cv2.IMREAD_UNCHANGED)
+    if len(mask.shape) != 2:
+        raise ValueError("mask file must be 2D single-channel image")
+    mask[mask > 0] = 1
+    return mask.astype(np.uint8)
+
 def file_integrate(file:str, **kwargs):
     """SAXS画像を積分する
 
@@ -68,6 +81,7 @@ def file_integrate(file:str, **kwargs):
     series_integrate(file, **kwargs)
 
 def series_integrate(src: list[str]|str, *,
+                     mask_src: str='', mask: np.ndarray=np.array([]),
                      center=(np.nan,np.nan),
                      camera_length=np.nan, wave_length=np.nan,
                      px_size=np.nan, detecter="",
@@ -153,9 +167,19 @@ def series_integrate(src: list[str]|str, *,
         warnings.warn("no valid calibration parameter given")
 
     height, width = cv2.imread(files[0], cv2.IMREAD_UNCHANGED).shape
+    mask_flg = False
+    if mask.size > 0:
+        if mask.shape != (height, width):
+            raise ValueError("mask size not match.")
+        mask_flg = True
+    else:
+        if mask_src:
+            mask = _readmask(mask_src)
+            if mask.shape != (height, width):
+                raise ValueError(f"mask size not match. {mask_src}")
+            mask_flg = True
+
     r, i = np.array([]), np.array([])
-    if verbose:
-        bar.update(1)
     for file in files:
         img = cv2.imread(file, cv2.IMREAD_UNCHANGED)
         if img.shape != (height, width):
@@ -164,14 +188,17 @@ def series_integrate(src: list[str]|str, *,
             img = np.flipud(img)
         if 'h' in flip:
             img = np.fliplr(img)
-        r, i = _radial_average(img, center[0], center[1])
+        if mask_flg:
+            r, i = _mask_and_average(img, mask, center[0], center[1])
+        else:
+            r, i = _radial_average(img, center[0], center[1])
         i_all.append(i)
         headers.append(os.path.basename(file))
         if verbose:
             bar.update(1)
 
     if calibration == 'geometry':
-        q = r2q(r, camera_length, px_size, wave_length)
+        q = r2q(r, camera_length, wave_length=wave_length, px_size=px_size)
     elif calibration == 'linear_regression':
         q = intercept + slope * r
     else:
@@ -208,6 +235,47 @@ def series_integrate(src: list[str]|str, *,
         bar.close()
     return dst
 
+class Mask:
+    """値が0の画素を無視するマスク"""
+    def __init__(self, shape=(0,0), value:np.ndarray|None=None):
+        if value is not None:
+            self.__mask = value.astype(np.uint8)
+        else:
+            if shape[0] <= 0 or shape[1] <= 0:
+                raise ValueError("Invalid shape")
+            self.__mask = np.ones(shape, dtype=np.uint8)
+        return
+
+    @property
+    def value(self, dtype=np.uint8) -> np.ndarray:
+        return (self.__mask > 0).astype(dtype)
+
+    def apply(self, arr:np.ndarray):
+        return arr * (self.value>0).astype(arr.dtype)
+
+    @property
+    def shape(self):
+        return self.__mask.shape
+
+    def add(self, arr:np.ndarray):
+        self.__mask[arr > 0] = 0
+        return
+
+    def add_rectangle(self, x: int, y: int, width: int, height: int):
+        self.__mask[y:y+height, x:x+width] = 0
+        return
+
+    def remove_rectangle(self, x: int, y: int, width: int, height: int):
+        self.__mask[y:y+height, x:x+width] = 1
+        return
+
+    def save(self, file: str='mask.pbm'):
+        cv2.imwrite(file, self.__mask)
+        return
+
+    @classmethod
+    def read(cls, src: str):
+        return cls(value=_readmask(src))
 
 class Saxs2d:
     def __init__(self, i: np.ndarray, px2q: float, center: ArrayLike):
