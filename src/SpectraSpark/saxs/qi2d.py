@@ -1,6 +1,7 @@
 import numpy as np
 import warnings, re, os
 from SpectraSpark.util import listFiles, write_json, ArrayLike
+from SpectraSpark.util.basic_calculation import r2q
 from SpectraSpark.constants import PILATUS_PX_SIZE, DETECTER_PX_SIZES
 from typing import Tuple
 from numba import jit
@@ -58,24 +59,6 @@ def _radial_average(img, center_x, center_y, threshold=2):
     r = min_r + 0.5 + np.arange(len(cnt))
     return r, i
 
-def _r2q(r, camera_length, px_size=PILATUS_PX_SIZE, wave_length=1.000):
-    """画像上のpxをq[nm^-1]に変換する
-
-    Parameters
-    ----------
-    r : np.ndarray
-        動径[px]の配列
-    camera_length : float
-        カメラ長[mm]
-    px_size : float
-        pxサイズ[mm]
-    wave_length : float
-        X線波長[AA]
-    """
-    _tan = r * px_size / camera_length
-    _theta = np.arctan(_tan) * 0.5
-    return 4 * np.pi / (wave_length*0.1) * np.sin(_theta)
-
 def file_integrate(file:str, **kwargs):
     """SAXS画像を積分する
 
@@ -97,6 +80,28 @@ def series_integrate(src: list[str]|str, *,
     ----------
     dir : str
         画像ファイルのディレクトリ
+    center : Tuple[float,float]
+        ビームセンターの座標(x, y)
+    camera_length : float
+        カメラ長[mm]
+    wave_length : float
+        X線の波長[nm]
+    px_size : float
+        1pxのサイズ[mm]
+    detecter : str
+        検出器名(`PILATUS` or `EIGER`)
+    slope : float
+        線形回帰の傾き[nm^-1/px]
+    intercept : float
+        線形回帰の切片[nm^-1]
+    flip : str
+        ''なら反転無し、'v'なら上下反転、'h'なら左右反転、'vh'なら上下左右反転
+    dst : str
+        結果を保存するファイル名、指定がなければdir.csv
+    overwrite : bool
+        Trueなら上書きする
+    verbose : bool
+        Trueなら進捗バーを表示する
     """
     files:list[str] = []
     if isinstance(src, str):
@@ -166,7 +171,7 @@ def series_integrate(src: list[str]|str, *,
             bar.update(1)
 
     if calibration == 'geometry':
-        q = _r2q(r, camera_length, px_size, wave_length)
+        q = r2q(r, camera_length, px_size, wave_length)
     elif calibration == 'linear_regression':
         q = intercept + slope * r
     else:

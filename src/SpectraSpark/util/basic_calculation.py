@@ -2,6 +2,7 @@
 
 import numpy as np
 from numba import jit
+from SpectraSpark.constants import PILATUS_PX_SIZE
 
 # @jit(nopython=True, cache=True)
 def convert(raw, dtype=np.uint8, *, min_val=np.nan, max_val=np.nan, zero_shift=True):
@@ -49,3 +50,22 @@ def theta2q(theta, wavelength, unit="degree"):
     """散乱角θを散乱ベクトルq[nm^-1]に変換する"""
     theta = np.deg2rad(theta) if unit == "degree" else theta
     return 4 * np.pi * np.sin(theta) / wavelength
+
+@jit(nopython=True, cache=True)
+def r2q(r, camera_length:float, *, wave_length:float=0.1000, px_size:float=PILATUS_PX_SIZE):
+    """画像上のpxをq[nm^-1]に変換する
+
+    Parameters
+    ----------
+    r : np.ndarray
+        動径[px]の配列
+    camera_length : float
+        カメラ長[mm]
+    px_size : float
+        pxサイズ[mm]
+    wave_length : float
+        X線波長[nm]
+    """
+    _tan = r * px_size / camera_length
+    _theta = np.arctan(_tan) * 0.5
+    return 4 * np.pi / wave_length * np.sin(_theta)
