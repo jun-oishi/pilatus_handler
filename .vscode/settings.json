@@ -35,6 +35,7 @@
         "editor.formatOnPaste": false,
         "editor.formatOnType": false
     },
+    "python.analysis.exclude": ["work/data"],
     "files.associations": {
         "*.tpl": "html",
         "stdout": "plaintext",

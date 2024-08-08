@@ -1,9 +1,6 @@
-tmp/*
-!tmp/.gitkeep
-data/*
-!data/.gitkeep
-ipynb
 __pycache__
+work/*
+!work/.gitkeep
 *.egg-info
 *.so
 *.o
