@@ -86,6 +86,8 @@ class Saxs1dSeries(Saxs1d):
         values = np.loadtxt(src, delimiter=delimiter, skiprows=skiprows, usecols=usecol)
         if len(values) < self.i.shape[0]:
             raise ValueError("Temperature data size not match")
+        elif len(values) > self.i.shape[0]:
+            warnings.warn("Temperature data size exceeds the number of profiles: trailing data will be ignored")
         self.__temperature = values[:self.i.shape[0]]
         return
 
@@ -99,28 +101,54 @@ class Saxs1dSeries(Saxs1d):
         raise NotImplementedError
 
     def heatmap(
-            self,
-            fig: Figure,
-            ax: Axes,
+            self, fig: Figure, ax: Axes,
             *,
             logscale: bool = True,
-            x_label="$q$ [nm$^{-1}$]",
-            x_lim=(np.nan, np.nan),
-            y_label: str = "file number",
-            y_ticks = [],
-            y_tick_labels: list[str] = [],
-            y_lim=(0, None),
-            v_min=np.nan,
-            v_max=np.nan,
+            x_label="$q$ [nm$^{-1}$]", x_lim=(-np.inf, np.inf),
+            y_label: str = "", y_ticks = {}, y_lim=(0, None),
+            v_min=np.nan, v_max=np.nan, extend: str = "min",
             cmap: str | Colormap = "jet",
             show_colorbar: bool = True,
-            extend: str = "min",
             cbar_fraction: float = 0.02,
             cbar_pad: float = 0.08,
             cbar_aspect: float = 50,
-            **kwargs
     ):
-        """ヒートマップを保存する"""
+        """ヒートマップを描画する
+
+        Parameters
+        ----------
+        fig : Figure
+        ax : Axes
+        logscale : bool, default True
+            Truethyならy軸を対数スケール
+        x_label : str, default "$q$ [nm$^{-1}$]"
+            x軸ラベル
+        x_lim : Tuple[float, float], default (-np.inf, np.inf)
+            x軸の範囲
+        y_label : str, default ""
+            y軸ラベル
+        y_ticks : Dict[int, str], default {}
+            y軸目盛り, 与えられなければファイル番号
+        y_lim : Tuple[int, int], default (0, None)
+            y軸の範囲
+        v_min : float, default np.nan
+            カラーバーの最小値
+        v_max : float, default np.nan
+            カラーバーの最大値
+        extend : str, default "min"
+            カラーバーの外側の表示方法("neither", "both", "min", "max")
+            see matplotlib.pyplot.contourf
+        cmap : str or Colormap, default "jet"
+            カラーマップ
+        show_colorbar : bool, default True
+            Truethyならカラーバーを表示
+        cbar_fraction : float, default 0.02
+            カラーバーの幅
+        cbar_pad : float, default 0.08
+            カラーバーの位置
+        cbar_aspect : float, default 50
+            カラーバーのアスペクト比
+        """
         q = self.q.copy()
         val = self.i.copy()
         if logscale:
@@ -128,14 +156,25 @@ class Saxs1dSeries(Saxs1d):
             val = np.log10(val)
             warnings.resetwarnings()
             isvalid = (np.isfinite(val).sum(axis=0)==val.shape[0])
-            q = q[isvalid]
-            val = val[:, isvalid]
+            if not np.any(isvalid):
+                raise ValueError("No valid data in the range")
+            else:
+                print(f"{val.shape[1]-isvalid.sum()} columns include NaN, so removed")
+                q = q[isvalid]
+                val = val[:, isvalid]
 
         idx = ((x_lim[0] < q) * (q < x_lim[1]))
-        val = val[y_lim[0]:y_lim[1], idx]
+        val = val[y_lim[0]:y_lim[1], idx]        # `arr[i:None]` interpreted as `arr[i:arr.size]``
         q = q[idx]
         y = np.arange(1, val.shape[0] + 1)
-        v_min = np.nanmin(val) if np.isnan(v_min) else v_min  # TODO: bag fix
+        if val.size == 0:
+            if x_lim[0] > np.max(q) or x_lim[1] < np.min(q):
+                raise ValueError("Specified q range is out of data range")
+            elif y_lim[1] > val.shape[0] or y_lim[0] < 0:
+                raise ValueError("Specified y range is out of data range")
+            else:
+                raise ValueError("No data in specified range: something wrong")
+        v_min = np.nanmin(val) if np.isnan(v_min) else v_min
         v_max = np.nanmax(val) if np.isnan(v_max) else v_max
         levels = np.linspace(v_min, v_max, 256)
         cs = ax.contourf(q, y, val, levels=levels, cmap=cmap, extend=extend)
@@ -143,36 +182,16 @@ class Saxs1dSeries(Saxs1d):
         if show_colorbar:
             cbar = fig.colorbar(
                 cs, ax=ax,
-                fraction=cbar_fraction, pad=cbar_pad, aspect=cbar_aspect,
-                **kwargs
+                fraction=cbar_fraction, pad=cbar_pad, aspect=cbar_aspect
             )
             cbar.set_label(r"$\log[I(q)]\;[a.u.]$" if logscale \
                            else r"$I[q]\;[a.u.]$")
 
         ax.set_xlabel(x_label)
         if len(y_ticks) != 0:
-            ax.set_yticks(y_ticks, y_tick_labels)
-        if y_label != "":
-            ax.set_ylabel(y_label)
+            y, y_labels = zip(*y_ticks.items())
+            ax.set_yticks(y, y_labels)
+        elif not y_label:
+            y_label = "file number"
+        ax.set_ylabel(y_label)
         return
-
-    @classmethod
-    def saveHeatmap(cls, src, *,
-                    figsize=(6, 6), q_min=1, q_max=10,
-                    v_min=np.nan, v_max=np.nan, overwrite=False,
-                    **kwargs) -> str:
-        dst = src.replace(".csv", ".png")
-        if not overwrite and os.path.exists(dst):
-            raise FileExistsError(f"{dst} already exists")
-        title = os.path.basename(dst).split(".")[0]
-
-        obj = cls.loadMatFile(src)
-        fig, ax = plt.subplots(figsize=figsize)
-        obj.heatmap(
-            fig, ax, x_lim=(q_min, q_max), v_min=v_min, v_max=v_max, **kwargs
-        )
-
-        ax.set_title(title)
-        fig.tight_layout()
-        fig.savefig(dst, dpi=300)
-        return dst
