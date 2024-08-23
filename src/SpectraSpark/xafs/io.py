@@ -6,6 +6,7 @@ from larch import Group
 from larch import io
 from larch.xrd.struct2xas import Struct2XAS
 from larch.xafs import feffrunner, FeffRunner, feffpath
+from xraydb import atomic_number
 
 from SpectraSpark.util.basic_calculation import nm2ev
 from .constants import FEFF_EXAFS_TMPL
@@ -30,7 +31,7 @@ class Xafs9809:
         n_blocks = 0
         blocks = []
         for ln in range(9, len(lines)):
-            pattern = r"^" + r" +".join(["([0-9\.]+)"] * 6) + r"$"
+            pattern = r"^" + r" +".join([r"([0-9\.]+)"] * 6) + r"$"
             if re.search(pattern, lines[ln].strip()):
                 n_blocks += 1
                 ln += 1
@@ -126,7 +127,58 @@ def read_ascii(src, *, labels=[], skiprows=-1):
 
     return io.read_ascii(src, labels=labels)
 
-def run_feff(cif, abs_atom, radius=7.0, *, folder='./feff', abs_site=-1):
+def pair2feffinp(abs, scat, r, *, folder='./feff', title='', edge='K',
+                        sig2=None, temperature=300, debye_temperature=None):
+    """吸収原子と散乱原子2原子のみのfeff.inpを生成してそのフォルダを返す"""
+    z_abs, z_scat = atomic_number(abs), atomic_number(scat)
+    title = f"{abs}-{scat}" if title == '' else title
+    outdir = f"{folder}/{title}"
+    if os.path.isfile(outdir):
+        raise ValueError(f"{outdir} already exists")
+    if not os.path.exists(outdir):
+        os.mkdir(outdir)
+    src = open(FEFF_EXAFS_TMPL, "r")
+    dst = open(f'{folder}/{title}/feff.inp', "w")
+    for line in src:
+        if line.startswith(r"{title}"):
+            line = f"TITLE {title}\n"
+        elif r"{edge}" in line:
+            line = line.replace(r"{edge}", edge)
+        elif r"{radius}" in line:
+            line = line.replace(r"{radius}", f"{r*1.1:.3f}")
+        elif r"SIG2" in line:
+            if sig2 is not None:
+                line = line.replace(r"{use_sig2} ", "") \
+                           .replace(r"{sig2}", f"{sig2:.3f}")
+            else:
+                line = line.replace(r"{use_sig2} ", "* ")
+        elif r"DEBYE" in line:
+            if debye_temperature is not None:
+                line = line.replace(r"{use_debye} ", "") \
+                           .replace(r"{temperature}", f"{temperature:.1f}") \
+                           .replace(r"{debye_temperature}", f"{debye_temperature:.1f}")
+            else:
+                line = line.replace(r"{use_debye} ", "* ")
+        elif line.startswith(r"{potentials}"):
+            header =  "* ipot  Z   tag"
+            lines = [f"     0  {z_abs}  {abs}",
+                     f"     1  {z_scat} {scat}"]
+            line = header + "\n" + "\n".join(lines)
+        elif line.startswith(r"{atoms}"):
+            header = "* x    y    z   ipot  tag   distance   occupancy"
+            lines = [f"  0.00000  0.00000  0.00000  0  {abs}  0.00000   *1",
+                     f"  0.00000  0.00000  {r:.5f}  1  {scat}  {r:.5f}   *1"]
+            line = header + "\n" + "\n".join(lines)
+
+        dst.write(line)
+
+    src.close()
+    dst.close()
+
+    return outdir
+
+def cif2feffinp(cif, abs_atom, radius=7.0, *, folder='./feff', abs_site=-1):
+    """cifファイルからfeff.inpを生成してそのフォルダを返す"""
     struct = Struct2XAS(cif, abs_atom=abs_atom)
     n_sites = len(struct.get_abs_sites())
     if abs_site==-1 and n_sites>1:
@@ -137,9 +189,10 @@ def run_feff(cif, abs_atom, radius=7.0, *, folder='./feff', abs_site=-1):
 
     struct.make_input_feff(radius=radius, template=FEFF_EXAFS_TMPL,
                            parent_path=folder)
-    outdir = struct.outdir
+    return struct.outdir
 
-    runner = feffrunner(folder=outdir, feffinp='feff.inp', verbose=False)
+def run_feff(outdir, feffinp='feff.inp'):
+    runner = feffrunner(folder=outdir, feffinp=feffinp, verbose=False)
     runner.run(exe=FEFF_EXECUTABLE)
 
     paths = [f for f in os.listdir(outdir) if re.search(r"^feff\d{4}\.dat$", f)]
@@ -153,7 +206,7 @@ def run_feff(cif, abs_atom, radius=7.0, *, folder='./feff', abs_site=-1):
     return ret
 
 def label_path(path, inplace=True):
-    geom = '-'.join([item[0] for item in path.geom]) + f'x{path.degen:.1f}'
+    geom = 'abs-' + '-'.join([item[0] for item in path.geom[1:]]) + f'x{path.degen:.1f}'
     if inplace:
         path.label = geom
     return geom

@@ -3,7 +3,18 @@
 import numpy as np
 from numba import jit
 from larch import Group, xafs
-from .io import label_path
+from .io import label_path, pair2feffinp, cif2feffinp, run_feff
+from copy import deepcopy
+
+def _copy_path(src):
+    dst = deepcopy(src)
+    if hasattr(src, "k") and hasattr(src, "chi"):
+        dst.k, dst.chi = src.k.copy(), src.chi.copy()
+    if hasattr(src, "r"):
+        dst.r = src.r.copy()
+        dst.chir_mag, dst.chir_pha = src.chir_mag.copy(), src.chir_pha.copy()
+        dst.chir_re, dst.chir_im = src.chir_re.copy(), src.chir_im.copy()
+    return dst
 
 def merge(groups):
     """muを持つGroupのリストを結合する"""
@@ -44,11 +55,12 @@ def feffit(params, dataset):
     }
     is_numeric = lambda x: isinstance(x, (int, float))
     ret = []
-    for path in pathlist:
-        label_path(path)
+    for base in pathlist:
+        path = _copy_path(base)
+        path.label = label_path(path)
         reff = path.reff
         for param in ('s02', 'deltar', 'sigma2', 'e0'):
-            val = getattr(path, param)
+            val = getattr(base, param)
             if not is_numeric(val):
                 setattr(path, param, eval(val))
         xafs.xftf(k=path.k, chi=path.chi, group=path, **ft_param)
@@ -57,4 +69,19 @@ def feffit(params, dataset):
     setattr(out, 'pathlist', ret)
     return out
 
-# TODO: 原子ペアと距離からfeff入力を生成してfeffを実行してpathを取得する関数を作る
+def pair_feff(abs, scat, r, *, degen=1.0, folder='./feff', title='', **kwargs):
+    """原子ペアと距離からfeff入力を生成してfeffを実行してpathを取得する
+    see also: pair2feffinp, run_feff
+    """
+    outdir = pair2feffinp(abs, scat, r, folder=folder, title=title, **kwargs)
+    path = run_feff(outdir)[0]
+    path.degen = degen
+    label_path(path)
+    return path
+
+def cif_feff(cif, abs, radius, *, folder='./feff', abs_site=-1, **kwargs):
+    """CIFファイルと吸収原子の情報からfeff入力を生成してfeffを実行してpathを取得する
+    see also: cif2feffinp, run_feff
+    """
+    outdir = cif2feffinp(cif, abs, radius, folder=folder, abs_site=abs_site, **kwargs)
+    return run_feff(outdir)
