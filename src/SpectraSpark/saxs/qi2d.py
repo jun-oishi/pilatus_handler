@@ -8,6 +8,8 @@ from numba import jit
 import tqdm
 import cv2
 
+from ..util.io import savetxt
+
 @jit(nopython=True, cache=True)
 def _radial_average(img, center_x, center_y, threshold=2):
     """画像の中心を中心にして、動径平均を計算する
@@ -206,7 +208,7 @@ def series_integrate(src: list[str]|str, *,
         headers[0] = "r[mm]"
 
     arr_out = np.hstack([q.reshape(-1, 1), np.array(i_all).T])
-    np.savetxt(dst, arr_out, delimiter=",", header=",".join(headers))
+    savetxt(dst, arr_out, header=headers)
 
     paramfile = dst.replace(".csv", "_params.json")
 

@@ -6,10 +6,10 @@ from matplotlib.colors import Colormap
 import os
 import warnings
 
+from ..util.io import loadtxt
+
 class Saxs1d:
     """1次元のSaxsデータを扱うクラス"""
-
-    __DEFAULT_DELIMITER = ","
 
     def __init__(self, i: np.ndarray, q: np.ndarray):
         self.__intensity = i
@@ -29,18 +29,16 @@ class Saxs1d:
     @classmethod
     def load(cls, src: str) -> "Saxs1d":
         """csvファイルから読み込む
-        P2M.toChiFile()で出力したファイル(ヘッダ3行)を読み込む
-        第1列はq[nm^-1]
+        第1列はq[nm^-1], 第2列をI[q]として読み込む
+        規格化因子n_factorを掛ける
         """
-        data = np.loadtxt(src, delimiter=cls.__DEFAULT_DELIMITER, skiprows=3)
+        data = loadtxt(src)
         return Saxs1d(data[:, 1], data[:, 0])
 
     @classmethod
     def loadMatFile(cls, src: str, usecol: int) -> "Saxs1d":
         """データ列が複数のファイルから読み込む"""
-        data = np.loadtxt(
-            src, usecols=(0, usecol), delimiter=cls.__DEFAULT_DELIMITER, skiprows=1
-        )
+        data = loadtxt(src, usecols=(0, usecol))
         return Saxs1d(data[:, 1], data[:, 0])
 
     def guinierRadius(self):
@@ -55,7 +53,6 @@ class Saxs1d:
 class Saxs1dSeries(Saxs1d):
     """時分割のSAXSデータ系列を扱うクラス"""
 
-    __DEFAULT_DELIMITER = ","
 
     def __init__(self, src: str='', *, i: np.ndarray, q: np.ndarray):
         if src:
@@ -67,7 +64,7 @@ class Saxs1dSeries(Saxs1d):
 
     @classmethod
     def loadMatFile(cls, src: str) -> "Saxs1dSeries":
-        data = np.loadtxt(src, delimiter=cls.__DEFAULT_DELIMITER)
+        data = loadtxt(src)
         q = data[:, 0]
         i = data[:, 1:].T  # i[k]がk番目のプロファイル
         print(f"{i.shape[0]} profiles along {q.shape[0]} q values loaded")
@@ -81,9 +78,9 @@ class Saxs1dSeries(Saxs1d):
         """
         return cls.loadMatFile(src)
 
-    def load_temperature(self, src: str, *, skiprows=1, usecol=4, delimiter=","):
+    def load_temperature(self, src: str, *, usecol=4, skiprows=1):
         """温度データを読み込む"""
-        values = np.loadtxt(src, delimiter=delimiter, skiprows=skiprows, usecols=usecol)
+        values = loadtxt(src, usecols=usecol, skiprows=skiprows)
         if len(values) < self.i.shape[0]:
             raise ValueError("Temperature data size not match")
         elif len(values) > self.i.shape[0]:

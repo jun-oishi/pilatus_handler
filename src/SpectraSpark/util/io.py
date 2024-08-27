@@ -16,6 +16,52 @@ def listFiles(dir: str, *, ext="") -> list[str]:
     getNum = lambda s: int(s.split(".")[0].split("_")[-1])
     return sorted(files, key=getNum)
 
+def loadtxt(src, *, delimiter=(None, ','), skiprows=-1, comments='#', **kwargs):
+    """numpy.loadtxtのラッパー
+
+    Parameters
+    ----------
+    src : str
+    delimiter : str or tuple
+    skiprows : int
+        -1の場合はcommentsで識別されるコメント行をスキップする
+    comments : str
+    """
+    if type(delimiter) is str:
+        delimiter = (delimiter)
+    if skiprows > 0:
+        kwargs["skiprows"] = skiprows
+
+    for d in delimiter:
+        try:
+            return np.loadtxt(src, delimiter=d, comments=comments, **kwargs)
+        except ValueError:
+            pass
+    raise ValueError("delimiter is not correct")
+
+def savetxt(fname, X, header:str|tuple|list='', *, delimiter=",", fmt="%.6e", overwrite=False, **kwargs):
+    """numpy.savetxtのラッパー
+
+    Parameters
+    ----------
+    fname : str
+    X : np.ndarray
+    header : str or tuple
+        ヘッダー行, tupleの場合はdelimiterで結合される
+    delimiter : str
+    fmt : str
+    overwrite : bool
+        Trueの場合はファイルが存在しても上書きする
+    """
+    if not overwrite and os.path.exists(fname):
+        raise FileExistsError(f"{fname} is already exists")
+
+    if type(header) is not str:
+        header = delimiter.join(header)
+
+    with open(fname, "w") as f:
+        np.savetxt(f, X, fmt=fmt, delimiter=delimiter, header=header, **kwargs)
+
 def _format_for_json(data, special_float_to=None):
     """nan, infをjsonで書き込めるように変換する"""
     for key in data:
