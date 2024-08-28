@@ -1,6 +1,7 @@
 #! /usr/bin/python3
 
 import os
+import json
 import numpy as np
 import json
 
@@ -15,96 +16,51 @@ def listFiles(dir: str, *, ext="") -> list[str]:
     getNum = lambda s: int(s.split(".")[0].split("_")[-1])
     return sorted(files, key=getNum)
 
-
-class CsvFile:
-    def __init__(self, data: np.ndarray, header: list[str]):
-        self.data: np.ndarray = data
-        self.header: list[str] = header
-
-
-def loadCsv(
-    path: str,
-    *,
-    n_columns: int = 0,
-    usecols: tuple[int, ...] = (),
-    dtype=float,
-    comment: str | int = "#",
-    delimiter: str | None = None,
-) -> CsvFile:
-    """csvファイルを読み込む
+def loadtxt(src, *, delimiter=(None, ','), skiprows=-1, comments='#', **kwargs):
+    """numpy.loadtxtのラッパー
 
     Parameters
     ----------
-    path : str
-        読み込むファイルのパス
-    n_columns : int
-        列数(全列読み出しの場合)
-    usecols : tuple[int]
-        使う列の番号(選択する場合)
-    dtype : DTypelike, optional
-        データ型, by default np.float64
-    comment : str|int, optional
-        strならその文字から始まる行を自動でヘッダとみなしintなら指定の行数をヘッダとみなす, by default "#"
+    src : str
+    delimiter : str or tuple
+    skiprows : int
+        -1の場合はcommentsで識別されるコメント行をスキップする
+    comments : str
     """
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"{path} is not found")
+    if type(delimiter) is str:
+        delimiter = (delimiter)
+    if skiprows > 0:
+        kwargs["skiprows"] = skiprows
 
-    if n_columns == 0 and usecols is None:
-        raise ValueError("n_columns or usecols must be specified")
-    elif n_columns != 0 and usecols is not None:
-        usecols = tuple(range(n_columns))
-    n_columns = max(n_columns, max(usecols) + 1)
+    for d in delimiter:
+        try:
+            return np.loadtxt(src, delimiter=d, comments=comments, **kwargs)
+        except ValueError:
+            pass
+    raise ValueError("delimiter is not correct")
 
-    skiprows: int = 0
-    header = ""
-    if isinstance(comment, str) and comment != "":
-        c = 0
-        with open(path, "r") as f:
-            while True:
-                line = f.readline()
-                if line.startswith(comment):
-                    header = line
-                    c += 1
-                else:
-                    break
-        skiprows = c
-    elif comment == "":
-        skiprows = 0
-    else:
-        skiprows = int(comment)
+def savetxt(fname, X, header:str|tuple|list='', *, delimiter=",", fmt="%.6e", overwrite=False, **kwargs):
+    """numpy.savetxtのラッパー
 
-    if delimiter is None:
-        candidates = (",", "\t", " ")
-        for d in candidates:
-            data = np.loadtxt(
-                path,
-                delimiter=d,
-                skiprows=skiprows,
-                usecols=usecols,
-                max_rows=1,
-                dtype=dtype,
-            )
-            if len(data) >= n_columns:
-                delimiter = d
-                break
-        if delimiter is None:
-            raise ValueError("delimiter is not found")
+    Parameters
+    ----------
+    fname : str
+    X : np.ndarray
+    header : str or tuple
+        ヘッダー行, tupleの場合はdelimiterで結合される
+    delimiter : str
+    fmt : str
+    overwrite : bool
+        Trueの場合はファイルが存在しても上書きする
+    """
+    if not overwrite and os.path.exists(fname):
+        raise FileExistsError(f"{fname} is already exists")
 
-    try:
-        data = np.loadtxt(
-            path, delimiter=delimiter, skiprows=skiprows, usecols=usecols, dtype=dtype
-        )
-    except:
-        data = np.loadtxt(
-            path,
-            delimiter=delimiter,
-            skiprows=skiprows,
-            usecols=usecols,
-            dtype=dtype,
-            encoding="cp932",
-        )
+    if type(header) is not str:
+        header = delimiter.join(header)
 
-    return CsvFile(data, header.split(delimiter))
+    with open(fname, "w") as f:
+        np.savetxt(f, X, fmt=fmt, delimiter=delimiter, header=header, **kwargs)
 
 def _format_for_json(data, special_float_to=None):
     """nan, infをjsonで書き込めるように変換する"""
