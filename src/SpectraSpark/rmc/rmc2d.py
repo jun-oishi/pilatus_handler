@@ -1,7 +1,6 @@
 #! /usr/bin/python3
 
 import numpy as np
-from typing import overload
 
 SQRT3 = np.sqrt(3)
 
@@ -36,7 +35,7 @@ class RmcSim2d:
         # モデル中の粒子数
         self.N = 0
         # フィッティングするqの配列
-        self.qx, qy = np.array([]), np.array([])
+        self.qx = np.array([])
         # 実験データ
         self.i_exp = np.array([])
 
@@ -194,7 +193,6 @@ class RmcSim2d:
 
     def compute_i(self):
         """散乱強度を計算する"""
-        nx, ny, N = self.qx.size, self.qy.size, self.N
         qx, qy = np.meshgrid(self.qx, self.qy)
         # Kahanの加算アルゴリズム
         a_re, a_im = np.zeros_like(qx), np.zeros_like(qx)
@@ -215,7 +213,6 @@ class RmcSim2d:
 
     def update_i(self, before_xy: np.ndarray, after_xy: np.ndarray):
         """直前に動かした粒子の情報を利用して散乱強度を更新する"""
-        nx, ny, n_moved = self.qx.size, self.qy.size, before_xy.shape[0]
         qx, qy = np.meshgrid(self.qx, self.qy)
         # Kahanの加算アルゴリズム
         da_re, da_im = np.zeros_like(qx), np.zeros_like(qx) # 前後の振幅変化の総和

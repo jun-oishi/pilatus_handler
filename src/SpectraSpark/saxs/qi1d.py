@@ -1,9 +1,7 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 from matplotlib.colors import Colormap
-import os
 import warnings
 
 from ..util.io import loadtxt

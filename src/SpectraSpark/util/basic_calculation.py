@@ -10,7 +10,7 @@ def convert(raw, dtype=np.uint8, *, min_val=np.nan, max_val=np.nan, zero_shift=T
     min,maxが指定されていればそれに合わせて正規化する
     指定されていなければ自動で最大を取得しzero_shiftがあれば最小が0になるようにシフトして正規化する
     """
-    if not dtype in (np.uint8, np.uint16, np.uint32):
+    if dtype not in (np.uint8, np.uint16, np.uint32):
         raise ValueError(f"dtype must be np.uint8, np.uint16, or np.uint32, but {dtype} is given.")
     if np.isnan(min_val):
         if zero_shift:

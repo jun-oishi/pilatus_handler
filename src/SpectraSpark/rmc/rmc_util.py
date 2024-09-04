@@ -1,5 +1,4 @@
 import numpy as np
-import re
 import os
 import sys
 import matplotlib.pyplot as plt
@@ -357,7 +356,7 @@ class Config:
 
         with open(dst, "w") as f:
             f.write(f"TITLE {dst}\n")
-            f.write(f"CELL\n")
+            f.write("CELL\n")
             f.write(f"  {a:.6f} {b:.6f} {c:.6f} {alpha:.6f} {beta:.6f} {gamma:.6f}\n")
             f.write("SYMMETRY NUMBER 1\n")
             f.write("SYMMETRY LABEL P1\n")
@@ -380,7 +379,7 @@ if __name__ == "__main__":
         src = args[2]
     else:
         src = input("Input file: ")
-    c = Config(src)
+    c = Config(src=src)
 
     if args[1] == "rdf":
         c.compute_rdf()

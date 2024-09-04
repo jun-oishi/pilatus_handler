@@ -3,7 +3,6 @@
 import os
 import json
 import numpy as np
-import json
 
 def listFiles(dir: str, *, ext="") -> list[str]:
     """指定ディレクオリ直下のファイル名をソートして返す
@@ -13,7 +12,7 @@ def listFiles(dir: str, *, ext="") -> list[str]:
     """
     all = os.listdir(dir)
     files = list(filter(lambda x: x.endswith(ext), all))
-    getNum = lambda s: int(s.split(".")[0].split("_")[-1])
+    def getNum(s): return int(s.split(".")[0].split("_")[-1])
     return sorted(files, key=getNum)
 
 def loadtxt(src, *, delimiter=(None, ','), skiprows=-1, comments='#', **kwargs):

@@ -10,8 +10,8 @@ from SpectraSpark.saxs import Saxs2d, Saxs1dSeries
 
 _EMPTY = np.array([])
 
-_q2d = lambda q: 2 * np.pi / q
-_d2q = lambda d: 2 * np.pi / d
+def _q2d(q): return 2 * np.pi / q
+def _d2q(d): return 2 * np.pi / d
 
 
 def trSaxsHeatmap(

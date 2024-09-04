@@ -1,11 +1,12 @@
 #! /usr/bin/env python3
 
-import re, os
+import re
+import os
 import numpy as np
 from larch import Group
 from larch import io
 from larch.xrd.struct2xas import Struct2XAS
-from larch.xafs import feffrunner, FeffRunner, feffpath
+from larch.xafs import feffrunner, feffpath
 from xraydb import atomic_number
 
 from SpectraSpark.util.basic_calculation import nm2ev
@@ -14,7 +15,7 @@ from .constants import FEFF_EXAFS_TMPL
 FEFF_EXECUTABLE = os.environ.get("FEFF_EXECUTABLE", "feff8l")
 
 class Xafs9809:
-    def __init__(self, src, ch_fluor=-1, preferred_ch='fluor'):
+    def __init__(self, src, ch_fluor=-1, preferred_ch='fluor', angle='observe'):
         with open(src, "r") as f:
             lines = f.readlines()
 
@@ -42,8 +43,16 @@ class Xafs9809:
         self.blocks = tuple(blocks)
 
         data = np.loadtxt(src, skiprows=13+ln)
-        self.angle = data[:, 1]
-        self.energy = nm2ev(1e-1*2*self.dspacing*np.sin(np.radians(self.angle)))
+        self.angle_control = data[:, 0]
+        self.angle_observe = data[:, 1]
+        if angle.lower() in ('control', 'c'):
+            self.energy = nm2ev(1e-1 * 2 * self.dspacing \
+                                * np.sin(np.radians(self.angle_control)))
+        elif angle.lower() in ('observe', 'o'):
+            self.energy = nm2ev(1e-1 * 2 * self.dspacing \
+                                * np.sin(np.radians(self.angle_observe)))
+        else:
+            raise ValueError(f"invalid angle: {angle}")
         self.time = data[:, 2]
         self.i0 = data[:, 3]
         self.trans = data[:, 4]
@@ -126,6 +135,31 @@ def read_ascii(src, *, labels=[], skiprows=-1):
         labels = header.strip().split()
 
     return io.read_ascii(src, labels=labels)
+
+def merge(groups):
+    """muを持つGroupのリストを結合する"""
+    energy = groups[0].energy
+    mu = np.empty((len(groups), len(energy)), dtype=float)
+    for i, group in enumerate(groups):
+        if len(energy) != len(group.energy):
+            raise ValueError("energy length mismatch")
+        elif not np.allclose(energy, group.energy):
+            raise ValueError("energy mismatch")
+        elif not hasattr(group, "mu") or group.mu.size != len(energy):
+            raise ValueError("mu mismatch")
+        mu[i] = group.mu
+    mu_mean = np.nanmean(mu, axis=0)
+    merged = Group(energy=energy, mu=mu_mean)
+    return merged
+
+def merge_read(srcs, *, formats='xafs9809', **kwargs):
+    if formats.lower() == 'xafs9809':
+        data = [Xafs9809(src, angle='control', **kwargs).as_group() for src in srcs]
+    elif formats.lower() == 'ascii':
+        data = [read_ascii(src, **kwargs) for src in srcs]
+    else:
+        raise ValueError(f"invalid format: {formats}")
+    return merge(data)
 
 def pair2feffinp(abs, scat, r, *, folder='./feff', title='', edge='K',
                         sig2=None, temperature=300, debye_temperature=None):
