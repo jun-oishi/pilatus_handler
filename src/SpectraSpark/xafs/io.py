@@ -70,8 +70,8 @@ class Xafs9809:
         data = self.energy.reshape(-1, 1)
         fmt = ['%7.f']
         for col in columns:
-            if col == 'angle':
-                data = np.hstack((data, self.angle.reshape(-1, 1)))
+            if col == 'energy':
+                data = np.hstack((data, self.energy.reshape(-1, 1)))
                 fmt.append('%.4f')
             elif col == 'time':
                 data = np.hstack((data, self.time.reshape(-1, 1)))
@@ -152,11 +152,11 @@ def merge(groups):
     merged = Group(energy=energy, mu=mu_mean)
     return merged
 
-def merge_read(srcs, *, formats='xafs9809', **kwargs):
+def merge_read(files, *, formats='xafs9809', **kwargs):
     if formats.lower() == 'xafs9809':
-        data = [Xafs9809(src, angle='control', **kwargs).as_group() for src in srcs]
+        data = [Xafs9809(file, angle='control', **kwargs).as_group() for file in files]
     elif formats.lower() == 'ascii':
-        data = [read_ascii(src, **kwargs) for src in srcs]
+        data = [read_ascii(file, **kwargs) for file in files]
     else:
         raise ValueError(f"invalid format: {formats}")
     return merge(data)
@@ -175,7 +175,7 @@ def pair2feffinp(abs, scat, r, *, folder='./feff', title='', edge='K',
     dst = open(f'{folder}/{title}/feff.inp', "w")
     for line in src:
         if line.startswith(r"{title}"):
-            line = f"TITLE {title}\n"
+            line = f"TITLE {title} reff={r:.4f}\n"
         elif r"{edge}" in line:
             line = line.replace(r"{edge}", edge)
         elif r"{radius}" in line:
