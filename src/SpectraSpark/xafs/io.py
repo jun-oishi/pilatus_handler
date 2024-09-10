@@ -183,7 +183,7 @@ def pair2feffinp(abs, scat, r, *, folder='./feff', title='', edge='K',
         elif r"SIG2" in line:
             if sig2 is not None:
                 line = line.replace(r"{use_sig2} ", "") \
-                           .replace(r"{sig2}", f"{sig2:.3f}")
+                           .replace(r"{sig2}", f"{sig2:.10f}")
             else:
                 line = line.replace(r"{use_sig2} ", "* ")
         elif r"DEBYE" in line:

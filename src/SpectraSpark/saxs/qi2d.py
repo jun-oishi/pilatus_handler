@@ -86,7 +86,7 @@ def file_integrate(file:str, **kwargs):
 
 def series_integrate(src: list[str]|str, *,
                      mask_src: str='', mask: np.ndarray=np.array([]),
-                     center=(np.nan,np.nan),
+                     center_x=np.nan, center_y=np.nan,
                      camera_length=np.nan, wave_length=np.nan,
                      px_size=np.nan, detecter="",
                      slope=np.nan, intercept=np.nan,
@@ -144,6 +144,8 @@ def series_integrate(src: list[str]|str, *,
     n_files = len(files)
     if n_files == 0:
         raise FileNotFoundError(f"No tif files in {src}.")
+    if n_files == 1:
+        verbose = False
 
     if verbose:
         bar = tqdm.tqdm(total=n_files)
@@ -193,9 +195,9 @@ def series_integrate(src: list[str]|str, *,
         if 'h' in flip:
             img = np.fliplr(img)
         if mask_flg:
-            r, i = _mask_and_average(img, mask, center[0], center[1])
+            r, i = _mask_and_average(img, mask, center_x, center_y)
         else:
-            r, i = _radial_average(img, center[0], center[1])
+            r, i = _radial_average(img, center_x, center_y)
         i_all.append(i)
         headers.append(os.path.basename(file))
         if verbose:
@@ -210,14 +212,13 @@ def series_integrate(src: list[str]|str, *,
         headers[0] = "r[mm]"
 
     arr_out = np.hstack([q.reshape(-1, 1), np.array(i_all).T])
-    savetxt(dst, arr_out, header=headers)
+    savetxt(dst, arr_out, header=headers, overwrite=overwrite)
 
     paramfile = dst.replace(".csv", "_params.json")
 
-    params={
-        'center_x[px]': center[0],
-        'center_y[px]': center[1],
-        'calibration_type': calibration,
+    params:dict[str,str|float] = {
+        'center_x[px]': center_x,
+        'center_y[px]': center_y,
         'px_size[mm]': px_size,
         'camera_length[mm]': camera_length,
         'wave_length[AA]': wave_length,

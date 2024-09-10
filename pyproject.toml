@@ -24,6 +24,10 @@ dependencies = [
     "xraydb >= 4.5.4",
 ]
 
+[project.scripts]
+saxs = "SpectraSpark.saxs:main"
+xafs = "SpectraSpark.xafs:main"
+
 [project.optional-dependencies]
 dev = [
     "jupyter >= 1.0.0",

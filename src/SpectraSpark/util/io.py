@@ -73,7 +73,38 @@ def _format_for_json(data, special_float_to=None):
     return data
 
 def write_json(path: str, data: dict, indent=2):
-    """jsonファイルに書き込む"""
+    """jsonファイルに書き込む
+
+    Parameters
+    ----------
+    path : str
+    data : dict
+    indent : int
+        default: 2, Noneの場合は改行なし
+    """
     data = _format_for_json(data, special_float_to=None)
     with open(path, "w") as f:
         json.dump(data, f, indent=indent)
+
+def read_json(path: str, *, omit_unit: bool=True, unit_bracket:str='['):
+    """jsonファイルを読み込む
+
+    Parameters
+    ----------
+    path : str
+    omit_unit : bool
+        Trueの場合は単位を削除する
+    unit_bracket : str
+        単位を示す文字列の前にある文字, default: '['
+    """
+    with open(path, "r") as f:
+        data = json.load(f)
+
+    if omit_unit:
+        raw_keys = tuple(data.keys())
+        for key in raw_keys:
+            if unit_bracket in key:
+                new_key = key.split(unit_bracket)[0]
+                data[new_key] = data.pop(key)
+
+    return data
