@@ -3,6 +3,7 @@ import warnings
 import re
 import os
 from numba import jit
+from matplotlib import pyplot as plt
 import tqdm
 import cv2
 from typing import Tuple
@@ -76,6 +77,51 @@ def _readmask(src:str):
     mask[mask > 0] = 1
     return mask.astype(np.uint8)
 
+def _get_stats(img, mask, center_x, center_y, prefix, r2q, threshold=2):
+    mask = ((mask * (img >= threshold)) > 0).astype(np.uint8)
+    xx, yy = np.meshgrid(np.arange(img.shape[1])-center_x,
+                         np.arange(img.shape[0])-center_y)
+    r_mat = np.sqrt(xx**2 + yy**2)
+    q_mat = r2q(r_mat)
+    i_mat = img * mask
+    min_q, max_q = 0, q_mat[mask>0].max()
+    min_i, max_i = 10, i_mat.max()
+
+    _q, _i = q_mat.flatten(), i_mat.flatten()
+    savetxt(f"{prefix}_scatter.csv", np.array([_q, _i]).T,
+            header=["q[nm^-1]", "i"], overwrite=True)
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.scatter(_q, _i, s=1)
+    ax.set_xlabel(r"$q\,[\mathrm{nm}^{-1}]$")
+    ax.set_xlim(min_q, max_q)
+    ax.set_ylabel(r"$I(q)\,[\mathrm{a.u.}]$")
+    ax.set_ylim(min_i, max_i)
+    ax.set_yscale('log')
+    fig.savefig(f"{prefix}_scatter.png")
+
+    r = np.arange(0, r_mat.max(), dtype=np.int32)
+    r_mat = np.floor(r_mat).astype(np.int32)
+    i, i_std = np.empty_like(r), np.empty_like(r)
+    n = np.empty_like(r, dtype=np.int32)
+    for _r in r:
+        i[_r] = i_mat[r_mat == _r].mean()
+        i_std[_r] = i_mat[r_mat == _r].std()
+        n[_r] = mask[r_mat == _r].sum()
+
+    _q = r2q(r+0.5)
+    savetxt(f"{prefix}_radial.csv", np.array([_q, i, i_std, n]).T,
+            header=["q[nm^-1]", "i", "i_std", "n"], overwrite=True)
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.errorbar(_q, i, yerr=i_std, fmt='o', markersize=2)
+    ax.set_xlabel(r"$q\,[\mathrm{nm}^{-1}]$")
+    ax.set_xlim(min_q, max_q)
+    ax.set_ylabel(r"$I(q)\,[\mathrm{a.u.}]$")
+    ax.set_ylim(min_i, max_i)
+    ax.set_yscale('log')
+    fig.savefig(f"{prefix}_radial.png")
+
+    return r, i
+
 def file_integrate(file:str, **kwargs):
     """SAXS画像を積分する
 
@@ -91,15 +137,22 @@ def series_integrate(src: list[str]|str, *,
                      px_size=np.nan, detecter="",
                      slope=np.nan, intercept=np.nan,
                      flip='vertical',
+                     statistics=False, stats_on=(0,),
                      dst="", overwrite=False, verbose=True):
     """SAXS画像の系列を積分する
 
     Parameters
     ----------
-    dir : str
-        画像ファイルのディレクトリ
-    center : Tuple[float,float]
-        ビームセンターの座標(x, y)
+    src : str
+        画像ファイルのディレクトリまたｈファイル名
+    mask_src : str
+        マスク画像のファイル名
+    mask : np.ndarray
+        マスク画像の配列, 0の画素は無視される
+    center_x : float
+        ビームセンターのx座標
+    center_y : float
+        ビームセンターのy座標
     camera_length : float
         カメラ長[mm]
     wave_length : float
@@ -114,6 +167,10 @@ def series_integrate(src: list[str]|str, *,
         線形回帰の切片[nm^-1]
     flip : str
         ''なら反転無し、'v'なら上下反転、'h'なら左右反転、'vh'なら上下左右反転
+    statistics : bool
+        Trueなら統計情報を出力する
+    stats_on : Tuple[int]
+        統計情報を出力する画像のインデックス
     dst : str
         結果を保存するファイル名、指定がなければdir.csv
     overwrite : bool
@@ -146,6 +203,9 @@ def series_integrate(src: list[str]|str, *,
         raise FileNotFoundError(f"No tif files in {src}.")
     if n_files == 1:
         verbose = False
+
+    if type(stats_on) is int:
+        stats_on = (stats_on,)
 
     if verbose:
         bar = tqdm.tqdm(total=n_files)
@@ -185,8 +245,20 @@ def series_integrate(src: list[str]|str, *,
                 raise ValueError(f"mask size not match. {mask_src}")
             mask_flg = True
 
+    if calibration == 'geometry':
+        def _r2q(r) -> np.ndarray:
+            return r2q(r, camera_length, wave_length=wave_length, px_size=px_size)
+    elif calibration == 'linear_regression':
+        def _r2q(r) -> np.ndarray:
+            return intercept + slope * r
+    else:
+        def _r2q(r) -> np.ndarray:
+            return np.array([])
+        def _r2r(r) -> np.ndarray:
+            return r * px_size
+
     r, i = np.array([]), np.array([])
-    for file in files:
+    for j, file in enumerate(files):
         img = cv2.imread(file, cv2.IMREAD_UNCHANGED)
         if img.shape != (height, width):
             raise ValueError(f"Image size is not match. {file}")
@@ -194,21 +266,24 @@ def series_integrate(src: list[str]|str, *,
             img = np.flipud(img)
         if 'h' in flip:
             img = np.fliplr(img)
-        if mask_flg:
-            r, i = _mask_and_average(img, mask, center_x, center_y)
+
+        if statistics and (j in stats_on):
+            if not mask_flg:
+                mask = np.ones_like(img)
+            r, i = _get_stats(img, mask, center_x, center_y, 'mycn420_7604ev', _r2q)
         else:
-            r, i = _radial_average(img, center_x, center_y)
+            if mask_flg:
+                r, i = _mask_and_average(img, mask, center_x, center_y)
+            else:
+                r, i = _radial_average(img, center_x, center_y)
         i_all.append(i)
         headers.append(os.path.basename(file))
         if verbose:
             bar.update(1)
 
-    if calibration == 'geometry':
-        q = r2q(r, camera_length, wave_length=wave_length, px_size=px_size)
-    elif calibration == 'linear_regression':
-        q = intercept + slope * r
-    else:
-        q = r * px_size
+    q = _r2q(r)
+    if q.size == 0:
+        q = _r2r(r)
         headers[0] = "r[mm]"
 
     arr_out = np.hstack([q.reshape(-1, 1), np.array(i_all).T])
