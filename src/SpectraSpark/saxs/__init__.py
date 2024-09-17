@@ -14,9 +14,9 @@ def main():
     subparsers = parser_main.add_subparsers()
 
     parser_integrate = subparsers.add_parser("integrate", help="see `integrate -h`")
-    parser_integrate.add_argument("src", help="path to file or directory to integrate")
+    parser_integrate.add_argument("src", help="path to file or directory to integrate", nargs="+")
     parser_integrate.add_argument("-p", "--paramfile", help="path to parameter file")
-    parser_integrate.add_argument("-m", "--mask", help="path to mask file")
+    parser_integrate.add_argument("-m", "--mask_src", help="path to mask file")
     parser_integrate.add_argument("-c", "--center", help="X and Y coordinate of the beamcenter", nargs=2)
     parser_integrate.add_argument("-l", "--camera_length", help="camera length")
     parser_integrate.add_argument("-w", "--wave_length", help="incident X-ray wave length")
@@ -27,7 +27,7 @@ def main():
     parser_integrate.add_argument("--flip", help="flip the image", choices=("h", "v", "hv", "none"))
     parser_integrate.add_argument("-o", "--dst", help="path to save the integrated file")
     parser_integrate.add_argument("--overwrite", action="store_true", help="overwrite the existing file")
-    parser_integrate.add_argument("-q", "--quiet", action="store_true", help="suppress the output")
+    parser_integrate.add_argument("--statistics", action="store_true", help="save statistics")
     parser_integrate.set_defaults(func=__integrate)
 
     args = parser_main.parse_args()
@@ -40,6 +40,8 @@ def main():
 
 def __integrate(args):
     from SpectraSpark.util import read_json
+    from pprint import pprint
+    import os
 
     kwargs = {k: v for k, v in vars(args).items() if v is not None}
     kwargs.pop("func")
@@ -48,10 +50,19 @@ def __integrate(args):
         kwargs.update(read_json(args.paramfile))
         kwargs.pop("paramfile")
 
-    kwargs['verbose'] = not args.quiet
-    kwargs.pop("quiet")
+    kwargs.pop("src")
+    pprint(args.src)
+    pprint(kwargs)
 
-    print(kwargs)
-    saved=series_integrate(**kwargs)
-
-    print(f"saved as {saved}")
+    if len(args.src) == 1:
+        if os.path.isdir(args.src[0]):
+            kwargs['verbose']=True
+            saved=series_integrate(args.src[0], **kwargs)
+        else:
+            saved=file_integrate(args.src[0], **kwargs)
+        print(f"saved as {saved}")
+    else:
+        src = args.src
+        for s in src:
+            saved=file_integrate(s, **kwargs)
+            print(f"saved as {saved}")

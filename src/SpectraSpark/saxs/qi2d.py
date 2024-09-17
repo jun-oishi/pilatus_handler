@@ -37,32 +37,28 @@ def _radial_average(img, center_x, center_y, threshold=2):
     """
     width = img.shape[1]
     height = img.shape[0]
-    r_mesh = np.empty(img.shape)
+    r_mesh = np.empty(img.shape, dtype=np.int64)
     dx_sq = (np.arange(width) - center_x)**2
     for y in range(height):
-        r_mesh[y, :] = np.sqrt(dx_sq + (y - center_y)**2)
+        r_mesh[y, :] = np.floor(np.sqrt(dx_sq + (y - center_y)**2))
 
-    min_r = int(r_mesh.min())
-    max_r = int(r_mesh.max())+1
-    r_range=max_r-min_r+1
-    cnt = np.zeros(r_range, dtype=np.int64)
-    i   = np.zeros(r_range, dtype=np.float64)
+    r = np.arange(r_mesh.max(), dtype=np.int64)
+    cnt = np.zeros_like(r, dtype=np.int64)
+    i = np.zeros_like(r, dtype=np.float64)
     for x in range(width):
         for y in range(height):
             if not img[y, x] >= threshold:
                 continue
-            idx = int(r_mesh[y, x]) - min_r
-            cnt[idx] += 1
-            i[idx] += img[y, x]
+            cnt[r_mesh[y,x]] += 1
+            i[r_mesh[y,x]] += img[y, x]
 
-    for idx in range(len(cnt)):
-        if cnt[idx] > 0:
-            i[idx] /= cnt[idx]
+    for _r in r:
+        if cnt[_r] > 0:
+            i[_r] /= cnt[_r]
         else:
-            i[idx] = 0
+            i[_r] = np.nan
 
-    r = min_r + 0.5 + np.arange(len(cnt))
-    return r, i
+    return r + 0.5, i
 
 @jit(nopython=True, cache=True)
 def _mask_and_average(img, mask, center_x, center_y, threshold=2):
@@ -78,49 +74,71 @@ def _readmask(src:str):
     return mask.astype(np.uint8)
 
 def _get_stats(img, mask, center_x, center_y, prefix, r2q, threshold=2):
-    mask = ((mask * (img >= threshold)) > 0).astype(np.uint8)
-    xx, yy = np.meshgrid(np.arange(img.shape[1])-center_x,
-                         np.arange(img.shape[0])-center_y)
-    r_mat = np.sqrt(xx**2 + yy**2)
-    q_mat = r2q(r_mat)
-    i_mat = img * mask
-    min_q, max_q = 0, q_mat[mask>0].max()
-    min_i, max_i = 10, i_mat.max()
+    img = img * mask
+    figsize = (img.shape[1]//80, 8)
 
-    _q, _i = q_mat.flatten(), i_mat.flatten()
-    savetxt(f"{prefix}_scatter.csv", np.array([_q, _i]).T,
-            header=["q[nm^-1]", "i"], overwrite=True)
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.scatter(_q, _i, s=1)
-    ax.set_xlabel(r"$q\,[\mathrm{nm}^{-1}]$")
-    ax.set_xlim(min_q, max_q)
-    ax.set_ylabel(r"$I(q)\,[\mathrm{a.u.}]$")
-    ax.set_ylim(min_i, max_i)
-    ax.set_yscale('log')
-    fig.savefig(f"{prefix}_scatter.png")
+    width = img.shape[1]
+    height = img.shape[0]
+    r_mesh = np.empty(img.shape, dtype=np.int64)
+    dx_sq = (np.arange(width) - center_x)**2
+    for y in range(height):
+        r_mesh[y, :] = np.floor(np.sqrt(dx_sq + (y - center_y)**2))
+    q_mesh = r2q(r_mesh)
 
-    r = np.arange(0, r_mat.max(), dtype=np.int32)
-    r_mat = np.floor(r_mat).astype(np.int32)
-    i, i_std = np.empty_like(r), np.empty_like(r)
-    n = np.empty_like(r, dtype=np.int32)
+    # 統計量の計算
+    r = np.arange(r_mesh.max(), dtype=np.int64)
+    cnt = np.zeros_like(r, dtype=np.int64)
+    i = np.zeros_like(r, dtype=np.float64)
+    i_sq = np.zeros_like(r, dtype=np.float64)
+    for x in range(width):
+        for y in range(height):
+            if img[y, x] < threshold:
+                continue
+            cnt[r_mesh[y,x]] += 1
+            i[r_mesh[y,x]] += img[y, x]
+            i_sq[r_mesh[y,x]] += img[y, x]**2
+
     for _r in r:
-        i[_r] = i_mat[r_mat == _r].mean()
-        i_std[_r] = i_mat[r_mat == _r].std()
-        n[_r] = mask[r_mat == _r].sum()
+        if cnt[_r] > 0:
+            i[_r] /= cnt[_r]
+            i_sq[_r] /= cnt[_r]
+        else:
+            i[_r] = np.nan
+            i_sq[_r] = np.nan
+    i_std = np.sqrt(i_sq - i**2)
+    min_q, max_q = 0, q_mesh.max()
+    min_i, max_i = np.nanmin(i), np.max(img)
 
-    _q = r2q(r+0.5)
-    savetxt(f"{prefix}_radial.csv", np.array([_q, i, i_std, n]).T,
-            header=["q[nm^-1]", "i", "i_std", "n"], overwrite=True)
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.errorbar(_q, i, yerr=i_std, fmt='o', markersize=2)
+    # 散布図
+    savetxt(f"{prefix}_scatter.csv", np.array([q_mesh.flatten(), img.flatten()]).T,
+            header=["q[nm^-1]", "i"], overwrite=True)
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.scatter(q_mesh, img, s=1)
     ax.set_xlabel(r"$q\,[\mathrm{nm}^{-1}]$")
     ax.set_xlim(min_q, max_q)
     ax.set_ylabel(r"$I(q)\,[\mathrm{a.u.}]$")
     ax.set_ylim(min_i, max_i)
     ax.set_yscale('log')
-    fig.savefig(f"{prefix}_radial.png")
+    fig.tight_layout()
+    fig.savefig(f"{prefix}_scatter.png")
+    print(f"{prefix}_scatter.png saved")
 
-    return r, i
+    # 動径平均とエラーバー
+    q = r2q(r+0.5)
+    savetxt(f"{prefix}_radial.csv", np.array([q, i, i_std, cnt]).T,
+            header=["q[nm^-1]", "i", "i_std", "n"], overwrite=True)
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.errorbar(q, i, yerr=i_std, fmt='o', markersize=2)
+    ax.set_xlabel(r"$q\,[\mathrm{nm}^{-1}]$")
+    ax.set_xlim(min_q, max_q)
+    ax.set_ylabel(r"$I(q)\,[\mathrm{a.u.}]$")
+    ax.set_ylim(min_i, max_i)
+    ax.set_yscale('log')
+    fig.tight_layout()
+    fig.savefig(f"{prefix}_radial.png")
+    print(f"{prefix}_radial.png saved")
+
+    return r+0.5, i
 
 def file_integrate(file:str, **kwargs):
     """SAXS画像を積分する
@@ -128,7 +146,7 @@ def file_integrate(file:str, **kwargs):
     see `saxs.series_integrate`
     """
     kwargs['verbose'] = False
-    series_integrate(file, **kwargs)
+    return series_integrate(file, **kwargs)
 
 def series_integrate(src: list[str]|str, *,
                      mask_src: str='', mask: np.ndarray=np.array([]),
@@ -137,7 +155,7 @@ def series_integrate(src: list[str]|str, *,
                      px_size=np.nan, detecter="",
                      slope=np.nan, intercept=np.nan,
                      flip='vertical',
-                     statistics=False, stats_on=(0,),
+                     statistics=False,
                      dst="", overwrite=False, verbose=True):
     """SAXS画像の系列を積分する
 
@@ -169,8 +187,6 @@ def series_integrate(src: list[str]|str, *,
         ''なら反転無し、'v'なら上下反転、'h'なら左右反転、'vh'なら上下左右反転
     statistics : bool
         Trueなら統計情報を出力する
-    stats_on : Tuple[int]
-        統計情報を出力する画像のインデックス
     dst : str
         結果を保存するファイル名、指定がなければdir.csv
     overwrite : bool
@@ -203,9 +219,6 @@ def series_integrate(src: list[str]|str, *,
         raise FileNotFoundError(f"No tif files in {src}.")
     if n_files == 1:
         verbose = False
-
-    if type(stats_on) is int:
-        stats_on = (stats_on,)
 
     if verbose:
         bar = tqdm.tqdm(total=n_files)
@@ -258,7 +271,7 @@ def series_integrate(src: list[str]|str, *,
             return r * px_size
 
     r, i = np.array([]), np.array([])
-    for j, file in enumerate(files):
+    for file in files:
         img = cv2.imread(file, cv2.IMREAD_UNCHANGED)
         if img.shape != (height, width):
             raise ValueError(f"Image size is not match. {file}")
@@ -267,10 +280,10 @@ def series_integrate(src: list[str]|str, *,
         if 'h' in flip:
             img = np.fliplr(img)
 
-        if statistics and (j in stats_on):
+        if statistics:
             if not mask_flg:
                 mask = np.ones_like(img)
-            r, i = _get_stats(img, mask, center_x, center_y, 'mycn420_7604ev', _r2q)
+            r, i = _get_stats(img, mask, center_x, center_y, file.replace('.tif', ''), _r2q)
         else:
             if mask_flg:
                 r, i = _mask_and_average(img, mask, center_x, center_y)
@@ -313,6 +326,7 @@ def series_integrate(src: list[str]|str, *,
 
     if verbose:
         bar.close()
+
     return dst
 
 class Mask:
