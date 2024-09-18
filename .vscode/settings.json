@@ -13,6 +13,8 @@
         "luae",
         "nopython",
         "numba",
+        "periodicize",
+        "periodicizer",
         "Pilutus",
         "pybind",
         "splot",

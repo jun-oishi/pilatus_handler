@@ -1,5 +1,6 @@
 from SpectraSpark.saxs.qi2d import Saxs2d, Mask, file_integrate, series_integrate
 from SpectraSpark.saxs.qi1d import Saxs1d, Saxs1dSeries
+from SpectraSpark.saxs.sim import sim_saxs
 
 __version__ = "0.0.1"
 
