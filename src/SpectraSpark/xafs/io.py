@@ -165,7 +165,7 @@ def pair2feffinp(abs, scat, r, *, folder='./feff', title='', edge='K',
                         sig2=None, temperature=300, debye_temperature=None):
     """吸収原子と散乱原子2原子のみのfeff.inpを生成してそのフォルダを返す"""
     z_abs, z_scat = atomic_number(abs), atomic_number(scat)
-    title = f"{abs}-{scat}" if title == '' else title
+    title = f"{abs}-{scat}_reff{r:.4f}" if title == '' else title
     outdir = f"{folder}/{title}"
     if os.path.isfile(outdir):
         raise ValueError(f"{outdir} already exists")
