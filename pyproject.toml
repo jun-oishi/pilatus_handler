@@ -41,3 +41,7 @@ exclude = []
 
 [tool.setuptools.dynamic]
 version = {attr="SpectraSpark.__version__"}
+
+[tool.pyright]
+include = ["src"]
+exclide = ["**/__pycacye__", "**/.*"]
