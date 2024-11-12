@@ -8,10 +8,54 @@ import tqdm
 import cv2
 from typing import Tuple
 
-from ..util import listFiles, write_json, savetxt, ArrayLike
+from ..util import listFiles, write_json, read_json, savetxt, ArrayLike, is_numeric
 from ..util.basic_calculation import r2q
 from ..constants import DETECTER_PX_SIZES
 
+class Saxs2dParams:
+    CALIBRATION_TYPES = ('geometry', 'linear_regression', 'none')
+
+    def __init__(self, *,
+                 center_x: float=np.nan,
+                 center_y: float=np.nan,
+                 calibration_type:str='none',
+                 px_size: float=np.nan,
+                 camera_length: float=np.nan,
+                 wave_length: float=np.nan,
+                 slope: float=np.nan,
+                 intercept: float=np.nan,
+                 flip: str='',
+                 mask_src:str=''):
+        self.center_x = float(center_x) # [px]
+        self.center_y = float(center_y) # [px]
+        self.calibration_type = calibration_type
+        self.px_size = float(px_size)   # [mm]
+        self.camera_length = float(camera_length) # [mm]
+        self.wave_length = float(wave_length)     # [AA]
+        self.slope = float(slope)  # [nm^-1/px]
+        self.intercept = float(intercept) # [nm^-1]
+        self.flip = flip
+        self.mask_src = mask_src
+
+    @classmethod
+    def load(cls, src: str):
+        _params = read_json(src)
+        params = {}
+        for k, v in _params.items():
+            if v is None or v == 'none':
+                continue
+            elif v == 'nan':
+                params[k] = np.nan
+            else:
+                params[k] = v
+        return cls(**params)
+
+    def save(self, dst: str, overwrite=False):
+        if not overwrite and os.path.exists(dst):
+            raise FileExistsError(f"{dst} is already exists.")
+        if self.calibration_type not in self.CALIBRATION_TYPES:
+            raise ValueError(f"Invalid calibration type: {self.calibration_type}")
+        write_json(dst, self.__dict__)
 
 @jit(nopython=True, cache=True)
 def _radial_average(img, center_x, center_y, threshold=2):
@@ -149,7 +193,7 @@ def file_integrate(file:str, **kwargs):
     return series_integrate(file, **kwargs)
 
 def series_integrate(src: list[str]|str, *,
-                     mask_src: str='', mask: np.ndarray=np.array([]),
+                     param_src = '', mask_src: str='', mask: np.ndarray=np.array([]),
                      center_x=np.nan, center_y=np.nan,
                      camera_length=np.nan, wave_length=np.nan,
                      px_size=np.nan, detecter="",
@@ -214,6 +258,19 @@ def series_integrate(src: list[str]|str, *,
             raise ValueError("dst to save results must be set")
         files=src
 
+    if param_src:
+        if not os.path.exists(param_src):
+            raise FileNotFoundError(f"{param_src} is not found.")
+        params = Saxs2dParams.load(param_src)
+        center_x = params.center_x
+        center_y = params.center_y
+        camera_length = params.camera_length
+        wave_length = params.wave_length
+        px_size = params.px_size
+        slope = params.slope
+        intercept = params.intercept
+        flip = params.flip
+
     n_files = len(files)
     if n_files == 0:
         raise FileNotFoundError(f"No tif files in {src}.")
@@ -238,9 +295,9 @@ def series_integrate(src: list[str]|str, *,
         raise ValueError(f'unrecognized detecter `{detecter}`')
 
     calibration = 'none'
-    if camera_length > 0 and wave_length > 0:
+    if is_numeric(camera_length) and is_numeric(wave_length):
         calibration = 'geometry'
-    elif not np.isnan(slope) and not np.isnan(intercept):
+    elif is_numeric(slope) and is_numeric(intercept):
         calibration = 'linear_regression'
     else:
         warnings.warn("no valid calibration parameter given")
@@ -265,10 +322,9 @@ def series_integrate(src: list[str]|str, *,
         def _r2q(r) -> np.ndarray:
             return intercept + slope * r
     else:
-        def _r2q(r) -> np.ndarray:
-            return np.array([])
-        def _r2r(r) -> np.ndarray:
+        def _r2r(r:np.ndarray) -> np.ndarray:
             return r * px_size
+        _r2q = _r2r
 
     r, i = np.array([]), np.array([])
     for file in files:
@@ -295,24 +351,19 @@ def series_integrate(src: list[str]|str, *,
             bar.update(1)
 
     q = _r2q(r)
-    if q.size == 0:
-        q = _r2r(r)
+    if calibration == 'none':
         headers[0] = "r[mm]"
 
     arr_out = np.hstack([q.reshape(-1, 1), np.array(i_all).T])
     savetxt(dst, arr_out, header=headers, overwrite=overwrite)
 
+    if mask_flg:
+        if mask_src == '':
+            mask_src = dst.replace(".csv", "_mask.tif")
+            cv2.imwrite(mask_src, mask)
+
     paramfile = dst.replace(".csv", "_params.json")
 
-    params:dict[str,str|float] = {
-        'center_x[px]': center_x,
-        'center_y[px]': center_y,
-        'px_size[mm]': px_size,
-        'camera_length[mm]': camera_length,
-        'wave_length[AA]': wave_length,
-        'slope[nm^-1/px]': slope,
-        'intercept[nm^-1]': intercept,
-    }
     if 'v' in flip and 'h' in flip:
         flip = 'vertical and horizontal'
     elif 'v' in flip:
@@ -321,8 +372,15 @@ def series_integrate(src: list[str]|str, *,
         flip = 'horizontal'
     else:
         flip = 'none'
-    params['flip'] = flip
-    write_json(paramfile, params)
+    params = Saxs2dParams(center_x=center_x, center_y=center_y,
+                              calibration_type=calibration, px_size=px_size,
+                              camera_length=camera_length, wave_length=wave_length,
+                              slope=slope, intercept=intercept, flip=flip,
+                              mask_src=mask_src)
+    if param_src == paramfile:
+        overwrite = True
+    params.save(paramfile, overwrite=overwrite)
+
 
     if verbose:
         bar.close()

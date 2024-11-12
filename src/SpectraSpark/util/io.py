@@ -86,7 +86,7 @@ def write_json(path: str, data: dict, indent=2):
     with open(path, "w") as f:
         json.dump(data, f, indent=indent)
 
-def read_json(path: str, *, omit_unit: bool=True, unit_bracket:str='['):
+def read_json(path: str, *, omit_unit: bool=True, unit_bracket:str='[') -> dict:
     """jsonファイルを読み込む
 
     Parameters
