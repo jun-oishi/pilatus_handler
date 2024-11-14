@@ -65,7 +65,7 @@ def pair_feff(abs, scat, r, *, degen=1.0, folder='./feff', title='', **kwargs):
     label_path(path)
     return path
 
-def cif_feff(cif, abs, radius, *, folder='./feff', abs_site=-1, **kwargs):
+def cif_feff(cif, abs, radius=7.0, *, folder='./feff', abs_site=-1, **kwargs):
     """CIFファイルと吸収原子の情報からfeff入力を生成してfeffを実行してpathを取得する
     see also: cif2feffinp, run_feff
     """

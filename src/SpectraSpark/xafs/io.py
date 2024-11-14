@@ -6,7 +6,7 @@ import numpy as np
 from larch import Group
 from larch import io
 from larch.xrd.struct2xas import Struct2XAS
-from larch.xafs import feffrunner, feffpath
+from larch.xafs import feffrunner, feffpath, FeffPathGroup
 from xraydb import atomic_number
 
 from SpectraSpark.util.basic_calculation import nm2ev
@@ -112,7 +112,7 @@ class Xafs9809:
         data.write_ascii(dst, columns=columns)
         return
 
-def read_ascii(src, *, labels=[], skiprows=-1):
+def read_ascii(src, *, labels=[], skiprows=-1)->Group:
     if skiprows == 0:
         # skiprowsが0の場合は1列目がenergy, 2列目がmuとして読み込む
         return io.read_ascii(src, labels=['energy', 'mu'])
@@ -211,7 +211,7 @@ def pair2feffinp(abs, scat, r, *, folder='./feff', title='', edge='K',
 
     return outdir
 
-def cif2feffinp(cif, abs_atom, radius=7.0, *, folder='./feff', abs_site=-1):
+def cif2feffinp(cif, abs_atom, radius=7.0, *, folder='./feff', abs_site=-1)->str:
     """cifファイルからfeff.inpを生成してそのフォルダを返す"""
     struct = Struct2XAS(cif, abs_atom=abs_atom)
     n_sites = len(struct.get_abs_sites())
@@ -225,7 +225,7 @@ def cif2feffinp(cif, abs_atom, radius=7.0, *, folder='./feff', abs_site=-1):
                            parent_path=folder)
     return struct.outdir
 
-def run_feff(outdir, feffinp='feff.inp'):
+def run_feff(outdir, feffinp='feff.inp')->list[FeffPathGroup]:
     runner = feffrunner(folder=outdir, feffinp=feffinp, verbose=False)
     runner.run(exe=FEFF_EXECUTABLE)
 
