@@ -6,9 +6,9 @@ from numba import jit
 from matplotlib import pyplot as plt
 import tqdm
 import cv2
-from typing import Tuple
+from typing import Tuple, Callable
 
-from ..util import listFiles, write_json, read_json, savetxt, ArrayLike, is_numeric
+from ..util import listFiles, write_json, read_json, savetxt, is_numeric
 from ..util.basic_calculation import r2q
 from ..constants import DETECTER_PX_SIZES
 
@@ -58,7 +58,7 @@ class Saxs2dParams:
         write_json(dst, self.__dict__)
 
 @jit(nopython=True, cache=True)
-def _radial_average(img, center_x, center_y, threshold=2):
+def _radial_average(img:np.ndarray, center_x:float, center_y:float, threshold:int=2)->Tuple[np.ndarray, np.ndarray]:
     """画像の中心を中心にして、動径平均を計算する
 
     Parameters
@@ -105,10 +105,16 @@ def _radial_average(img, center_x, center_y, threshold=2):
     return r + 0.5, i
 
 @jit(nopython=True, cache=True)
-def _mask_and_average(img, mask, center_x, center_y, threshold=2):
+def _mask_and_average(img:np.ndarray, mask:np.ndarray, center_x:float, center_y:float, threshold:int=2):
+    """画像をマスクして、動径平均を計算する
+    _radial_average(img*mask, center_x, center_y, threshold)と同じ
+    """
     return _radial_average(img*mask, center_x, center_y, threshold)
 
-def _readmask(src:str):
+def _readmask(src:str)->np.ndarray:
+    """ファイルからマスクを読み込む
+    ファイルを読み込んでuint8の二次元配列にして返す
+    """
     if not os.path.exists(src):
         raise FileNotFoundError(f"{src} is not found.")
     mask = cv2.imread(src, cv2.IMREAD_UNCHANGED)
@@ -117,7 +123,34 @@ def _readmask(src:str):
     mask[mask > 0] = 1
     return mask.astype(np.uint8)
 
-def _get_stats(img, mask, center_x, center_y, prefix, r2q, threshold=2):
+def _get_stats(img:np.ndarray, mask:np.ndarray, center_x:float, center_y:float, prefix:str, r2q:Callable, threshold:int=2)->Tuple[np.ndarray, np.ndarray]:
+    """動径平均と分散を求めてcsv, 散布図, エラーバー付きq-iプロットを保存する
+    imgをマスクして動径平均と分散を計算して{prefix}_radial.csv, {prefix}_scatter.png, {prefix}_radial.pngを保存する
+
+    Parameters
+    ----------
+    img : np.ndarray
+        散乱強度の2次元配列
+    mask : np.ndarray
+        マスク画像の配列, 0の画素は無視される
+    center_x : float
+        ビームセンターのx座標
+    center_y : float
+        ビームセンターのy座標
+    prefix : str
+        保存するファイル名のプレフィックス
+    r2q : Callable[[np.ndarray], np.ndarray]
+        動径をqに変換する関数
+    threshold : int
+        この値より小さい画素は無視する
+
+    Returns
+    -------
+    r : np.ndarray
+        r[px]の配列
+    i : np.ndarray
+        散乱強度の配列
+    """
     img = img * mask
     figsize = (img.shape[1]//80, 8)
 
@@ -390,6 +423,9 @@ def series_integrate(src: list[str]|str, *,
 class Mask:
     """値が0の画素を無視するマスク"""
     def __init__(self, shape=(0,0), value:np.ndarray|None=None):
+        """valueで初期化されたマスクを作成する
+        valueが与えられなければshapeで指定されたサイズで1埋めのマスクを作成する
+        """
         if value is not None:
             self.__mask = value.astype(np.uint8)
         else:
@@ -400,9 +436,11 @@ class Mask:
 
     @property
     def value(self, dtype=np.uint8) -> np.ndarray:
+        """格納された値をdtypeで指定した型で返す"""
         return (self.__mask > 0).astype(dtype)
 
     def apply(self, arr:np.ndarray):
+        """arrで与えられた配列にマスクを適用した結果を返す"""
         return arr * (self.value>0).astype(arr.dtype)
 
     @property
@@ -410,27 +448,64 @@ class Mask:
         return self.__mask.shape
 
     def add(self, arr:np.ndarray):
+        """arrがnon zeroの画素をマスクするように変える"""
         self.__mask[arr > 0] = 0
         return
 
     def add_rectangle(self, x: int, y: int, width: int, height: int):
+        """マスクに長方形を加える
+
+        Parameters
+        ----------
+        x : int
+            長方形の左上のx座標
+        y : int
+            長方形の左上のy座標
+        width : int
+        height : int
+        """
         self.__mask[y:y+height, x:x+width] = 0
         return
 
     def remove_rectangle(self, x: int, y: int, width: int, height: int):
+        """マスクから長方形を取り除く
+
+        Parameters
+        ----------
+        x : int
+            長方形の左上のx座標
+        y : int
+            長方形の左上のy座標
+        width : int
+        height : int
+        """
+
         self.__mask[y:y+height, x:x+width] = 1
         return
 
     def save(self, file: str='mask.pbm'):
+        """マスクをファイルに保存する"""
         cv2.imwrite(file, self.__mask)
         return
 
     @classmethod
-    def read(cls, src: str):
+    def read(cls, src: str)->'Mask':
+        """ファイルからマスクを読み込む"""
         return cls(value=_readmask(src))
 
 class Saxs2d:
-    def __init__(self, i: np.ndarray, px2q: float, center: ArrayLike):
+    """SAXSの2次元データを扱うクラス
+
+    Attributes
+    ----------
+    __i : np.ndarray
+        散乱強度の2次元配列
+    __px2q : float
+        1pxあたりのqの変化量[nm^-1/px]
+    __center : Tuple[float, float]
+        ビームセンターの座標(x,y)
+    """
+    def __init__(self, i: np.ndarray, px2q: float, center: Tuple[float, float]):
         self.__i = i  # floatの2次元配列 欠損値はnp.nan
         self.__px2q = px2q  # nm^-1/px
         self.__center = (center[0], center[1])  # (x,y)
@@ -451,6 +526,23 @@ class Saxs2d:
     def radial_average(
         self, q_min: float = 0, q_max: float = np.inf
     ) -> Tuple[np.ndarray, np.ndarray]:
+        """q_minからq_maxまでの範囲で動径平均を計算する
+        インスタンスに格納された変数を使ってnumba.jitを使用せずに動径平均を計算する
+
+        Parameters
+        ----------
+        q_min : float
+            動径平均を計算する最小のq値[1/nm]
+        q_max : float
+            動径平均を計算する最大のq値[1/nm]
+
+        Returns
+        -------
+        i : np.ndarray
+            散乱強度の動径平均の配列
+        q : np.ndarray
+            qの配列
+        """
         rx = np.arange(self.__i.shape[1]) - self.__center[0]
         ry = np.arange(self.__i.shape[0]) - self.__center[1]
         rxx, ryy = np.meshgrid(rx, ry)
@@ -469,7 +561,3 @@ class Saxs2d:
 
         q_bin = r_bin * self.__px2q
         return i, (q_bin[:-1] + q_bin[1:]) / 2
-
-    def rotate(self, angle: float):
-        """画像を回転する"""
-        raise NotImplementedError
