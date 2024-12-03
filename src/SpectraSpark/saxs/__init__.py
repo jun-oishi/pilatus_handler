@@ -1,10 +1,10 @@
-from SpectraSpark.saxs.qi2d import Saxs2d, Mask, file_integrate, series_integrate
+from SpectraSpark.saxs.qi2d import Saxs2d, Mask, file_integrate, series_integrate, find_center
 from SpectraSpark.saxs.qi1d import Saxs1d, Saxs1dSeries
-from .fit import decouple_fit
+from SpectraSpark.saxs.fit import decouple_fit
 
 __version__ = "0.0.1"
 
-__all__ = ["Saxs2d", "Mask", "file_integrate", "series_integrate",
+__all__ = ["Saxs2d", "Mask", "file_integrate", "series_integrate", "find_center",
            "Saxs1d", "Saxs1dSeries", "decouple_fit"]
 
 
@@ -30,6 +30,11 @@ def main():
     parser_integrate.add_argument("--overwrite", action="store_true", help="overwrite the existing file")
     parser_integrate.add_argument("--statistics", action="store_true", help="save statistics")
     parser_integrate.set_defaults(func=__integrate)
+
+    parser_find_center = subparsers.add_parser("find_center", help="see `find_center -h`")
+    parser_find_center.set_defaults(func=__find_center)
+    parser_find_center.add_argument("src", help="path to file to find center")
+    parser_find_center.add_argument("--overwrite", action="store_true", help="overwrite the existing file")
 
     args = parser_main.parse_args()
 
@@ -67,3 +72,10 @@ def __integrate(args):
         for s in src:
             saved=file_integrate(s, **kwargs)
             print(f"saved as {saved}")
+
+def __find_center(args):
+    import os
+    src, overwrite = args.src, args.overwrite
+    cwd, file = os.path.split(src)
+    os.chdir(cwd)
+    find_center(file, overwrite=overwrite)

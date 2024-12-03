@@ -111,6 +111,31 @@ def _mask_and_average(img:np.ndarray, mask:np.ndarray, center_x:float, center_y:
     """
     return _radial_average(img*mask, center_x, center_y, threshold)
 
+def _find_circle_center(points:list[Tuple[float, float]])->Tuple[float, float]:
+    """与えられた点を通る円の中心を求める
+    see https://risalc.info/src/Least-square-circle.html
+
+    Parameters
+    ----------
+    points : list[Tuple[float, float]]
+        点の座標(x, y)のリスト
+
+    Returns
+    -------
+    center : Tuple[float, float]
+        円の中心の座標(x, y)
+    """
+    x, y = np.array(points).T
+    x_g, y_g = np.mean(x), np.mean(y)
+    x, y = x - x_g, y - y_g
+    T20, T02 = np.sum(x**2), np.sum(y**2)
+    T30, T03 = np.sum(x**3), np.sum(y**3)
+    T11, T12, T21 = np.sum(x*y), np.sum(x*y**2), np.sum(x**2*y)
+    left = np.array([[T20, T11], [T11, T02]])
+    right = 0.5 * np.array([T30+T12, T03+T21])
+    center = np.linalg.solve(left, right)
+    return center[0]+x_g, center[1]+y_g
+
 def _readmask(src:str)->np.ndarray:
     """ファイルからマスクを読み込む
     ファイルを読み込んでuint8の二次元配列にして返す
@@ -419,6 +444,93 @@ def series_integrate(src: list[str]|str, *,
         bar.close()
 
     return dst
+
+def find_center(src, detecter='', px_size=1, overwrite=False):
+    """インタラクティブにビームセンターを求める
+    画像を表示して3点以上をクリックしてビームセンターを求めてself.__centerを更新し、
+    動径平均を計算して保存する
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.widgets import Button
+    if detecter in DETECTER_PX_SIZES:
+        px_size = np.nan
+    if not os.path.exists(src):
+        raise FileNotFoundError(f"{src} is not found.")
+    im = cv2.imread(src, cv2.IMREAD_UNCHANGED).astype(np.float32)
+    im[im<2] = np.nan
+    im = np.log(im)
+    center = [np.nan, np.nan]
+
+    figsize = (im.shape[1]//200, im.shape[0]//200 + 1)
+    fig = plt.figure(figsize=figsize)
+    # fig = plt.figure()
+    confirm_button = Button(fig.add_axes([0.4, 0.025, 0.1, 0.05]), 'Confirm')
+    undo_button = Button(fig.add_axes([0.2, 0.025, 0.1, 0.05]), 'Undo')
+    save_button = Button(fig.add_axes([0.6, 0.025, 0.1, 0.05]), 'Save')
+    exit_button = Button(fig.add_axes([0.8, 0.025, 0.1, 0.05]), 'Exit')
+    ax = fig.add_subplot(111)
+
+    clicked = []
+    def onclick(event):
+        nonlocal clicked
+        if event.inaxes == ax:
+            if event.xdata is None or event.ydata is None:
+                return
+            x, y = float(event.xdata), float(event.ydata)
+            print(f'({x:.2f}, {y:.2f}) clicked')
+            clicked.append((x, y))
+            return
+
+    def confirm(event):
+        nonlocal center
+        if len(clicked) < 3:
+            warnings.warn("At least 3 points are needed.")
+            return
+        center[0], center[1] = _find_circle_center(clicked)
+        print(f'Center: ({center[0]:.2f}, {center[1]:.2f})')
+        return
+
+    def undo(event):
+        nonlocal clicked
+        if len(clicked) > 0:
+            x, y = clicked[-1]
+            clicked.pop()
+            print(f'({x:.2f}, {y:.2f}) removed')
+        return
+
+    def save(event):
+        nonlocal overwrite, center, detecter, px_size
+        if center[0] is np.nan:
+            warnings.warn("Center not found.")
+            return
+        try:
+            dst = file_integrate(src, center_x=center[0], center_y=center[1],
+                                    px_size=px_size, detecter=detecter,
+                                    flip='', overwrite=overwrite)
+            print(f"{dst} saved")
+        except FileExistsError:
+            warnings.warn("File already exists")
+            _overwrite = input("Overwrite? [y/n]")
+            if _overwrite == 'y':
+                overwrite = True
+                print("try again to save")
+        return
+
+    def exit(event):
+        plt.close()
+        return
+
+    cid = fig.canvas.mpl_connect('button_press_event', onclick)
+    confirm_button.on_clicked(confirm)
+    undo_button.on_clicked(undo)
+    save_button.on_clicked(save)
+    exit_button.on_clicked(exit)
+
+    ax.imshow(im, cmap='jet')
+
+    plt.show()
+
+    return
 
 class Mask:
     """値が0の画素を無視するマスク"""
