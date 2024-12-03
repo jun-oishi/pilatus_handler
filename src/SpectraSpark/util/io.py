@@ -68,7 +68,7 @@ def _format_for_json(data, special_float_to=None):
             data[key] = _format_for_json(data[key], special_float_to)
         elif isinstance(data[key], float) and not np.isfinite(data[key]):
             data[key] = special_float_to
-        elif hasattr(data[key], "__len__") and isinstance(data[key][0], float):
+        elif hasattr(data[key], "__len__") and len(data[key]) > 0 and isinstance(data[key][0], float):
             data[key] = [special_float_to if not np.isfinite(x) else x for x in data[key]]
     return data
 
