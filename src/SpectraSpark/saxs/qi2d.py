@@ -19,6 +19,7 @@ class Saxs2dParams:
                  center_x: float=np.nan,
                  center_y: float=np.nan,
                  calibration_type:str='none',
+                 detecter:str='',
                  px_size: float=np.nan,
                  camera_length: float=np.nan,
                  wave_length: float=np.nan,
@@ -29,6 +30,7 @@ class Saxs2dParams:
         self.center_x = float(center_x) # [px]
         self.center_y = float(center_y) # [px]
         self.calibration_type = calibration_type
+        self.detecter = detecter # 'PILATUS' or 'EIGER' or 'unknown'
         self.px_size = float(px_size)   # [mm]
         self.camera_length = float(camera_length) # [mm]
         self.wave_length = float(wave_length)     # [AA]
@@ -290,7 +292,7 @@ def series_integrate(src: list[str]|str, *,
     statistics : bool
         Trueなら統計情報を出力する
     dst : str
-        結果を保存するファイル名、指定がなければdir.csv
+        結果(csv)を保存するファイル名、指定がなければdir.csv
     overwrite : bool
         Trueなら上書きする
     verbose : bool
@@ -314,6 +316,9 @@ def series_integrate(src: list[str]|str, *,
                 raise ValueError("Unsupported file format: only .tif is supported")
         if len(dst) == 0:
             raise ValueError("dst to save results must be set")
+        elif not dst.endswith(".csv"):
+            dst = dst + ".csv"
+            warnings.warn(f"dst is set to {dst}")
         files=src
 
     if param_src:
@@ -325,6 +330,7 @@ def series_integrate(src: list[str]|str, *,
         camera_length = params.camera_length
         wave_length = params.wave_length
         px_size = params.px_size
+        detecter = params.detecter
         slope = params.slope
         intercept = params.intercept
         flip = params.flip
@@ -344,19 +350,21 @@ def series_integrate(src: list[str]|str, *,
     i_all = []
     headers = ["q[nm^-1]"]
 
-    if detecter.upper() in DETECTER_PX_SIZES:
-        px_size = DETECTER_PX_SIZES[detecter.upper()]
-    elif detecter == '':
-        if np.isnan(px_size):
-            raise ValueError("either `px_size` or `detecter` must be set")
-    else:
-        raise ValueError(f'unrecognized detecter `{detecter}`')
-
     calibration = 'none'
     if is_numeric(camera_length) and is_numeric(wave_length):
         calibration = 'geometry'
+
+        if detecter.upper() in DETECTER_PX_SIZES:
+            px_size = DETECTER_PX_SIZES[detecter.upper()]
+        elif detecter == '':
+            if np.isnan(px_size):
+                raise ValueError("either `px_size` or `detecter` must be set for geometry calibration")
+        else:
+            raise ValueError(f'unrecognized detecter `{detecter}`')
+
     elif is_numeric(slope) and is_numeric(intercept):
         calibration = 'linear_regression'
+        px_size = np.nan
     else:
         warnings.warn("no valid calibration parameter given")
 
@@ -380,6 +388,7 @@ def series_integrate(src: list[str]|str, *,
         def _r2q(r) -> np.ndarray:
             return intercept + slope * r
     else:
+        px_size = 1 if np.isnan(px_size) else px_size
         def _r2r(r:np.ndarray) -> np.ndarray:
             return r * px_size
         _r2q = _r2r
@@ -410,7 +419,7 @@ def series_integrate(src: list[str]|str, *,
 
     q = _r2q(r)
     if calibration == 'none':
-        headers[0] = "r[mm]"
+        headers[0] = "r[mm]" if abs(px_size-1) > 1e-10 else "r[px]"
 
     arr_out = np.hstack([q.reshape(-1, 1), np.array(i_all).T])
     savetxt(dst, arr_out, header=headers, overwrite=overwrite)
@@ -431,7 +440,8 @@ def series_integrate(src: list[str]|str, *,
     else:
         flip = 'none'
     params = Saxs2dParams(center_x=center_x, center_y=center_y,
-                              calibration_type=calibration, px_size=px_size,
+                              calibration_type=calibration,
+                              px_size=px_size, detecter=detecter,
                               camera_length=camera_length, wave_length=wave_length,
                               slope=slope, intercept=intercept, flip=flip,
                               mask_src=mask_src)
@@ -445,7 +455,7 @@ def series_integrate(src: list[str]|str, *,
 
     return dst
 
-def find_center(src, detecter='', px_size=1, overwrite=False):
+def find_center(src, detecter='', px_size=np.nan, overwrite=True):
     """インタラクティブにビームセンターを求める
     画像を表示して3点以上をクリックしてビームセンターを求めてself.__centerを更新し、
     動径平均を計算して保存する
@@ -463,10 +473,11 @@ def find_center(src, detecter='', px_size=1, overwrite=False):
 
     figsize = (im.shape[1]//200, im.shape[0]//200 + 1)
     fig = plt.figure(figsize=figsize)
-    # fig = plt.figure()
     confirm_button = Button(fig.add_axes([0.4, 0.025, 0.1, 0.05]), 'Confirm')
     undo_button = Button(fig.add_axes([0.2, 0.025, 0.1, 0.05]), 'Undo')
     save_button = Button(fig.add_axes([0.6, 0.025, 0.1, 0.05]), 'Save')
+    if overwrite:
+        save_button.label.set_text('Overwrite')
     exit_button = Button(fig.add_axes([0.8, 0.025, 0.1, 0.05]), 'Exit')
     ax = fig.add_subplot(111)
 
@@ -496,6 +507,10 @@ def find_center(src, detecter='', px_size=1, overwrite=False):
             x, y = clicked[-1]
             clicked.pop()
             print(f'({x:.2f}, {y:.2f}) removed')
+            if len(clicked) == 0:
+                print("No point to remove")
+        else:
+            print("No point to remove")
         return
 
     def save(event):
@@ -509,11 +524,10 @@ def find_center(src, detecter='', px_size=1, overwrite=False):
                                     flip='', overwrite=overwrite)
             print(f"{dst} saved")
         except FileExistsError:
-            warnings.warn("File already exists")
-            _overwrite = input("Overwrite? [y/n]")
-            if _overwrite == 'y':
-                overwrite = True
-                print("try again to save")
+            dst = file_integrate(src, center_x=center[0], center_y=center[1],
+                                    px_size=px_size, detecter=detecter,
+                                    flip='', dst='tmp.csv', overwrite=True)
+            warnings.warn("File already exists, saved as tmp.csv")
         return
 
     def exit(event):
