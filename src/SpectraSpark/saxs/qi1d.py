@@ -1,8 +1,11 @@
+#! /usr/bin/env python3
+
 import numpy as np
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 from matplotlib.colors import Colormap
 import warnings
+import os
 
 from ..util.io import loadtxt
 
@@ -23,6 +26,17 @@ class Saxs1d:
     def q(self) -> np.ndarray:
         """magnitude of scattering vector [nm^-1]"""
         return self.__q
+
+    def divide(self, c):
+        """強度を定数cで割る"""
+        self.__intensity /= c
+        return
+
+    def sub(self, other: "Saxs1d"):
+        """引数のSaxs1dの強度を引く"""
+        if self.q.shape != other.q.shape or self.q[0] != other.q[0]:
+            raise ValueError("q values do not match")
+        self.__intensity -= other.i
 
     @classmethod
     def load(cls, src: str) -> "Saxs1d":
@@ -190,3 +204,107 @@ class Saxs1dSeries(Saxs1d):
             y_label = "file number"
         ax.set_ylabel(y_label)
         return
+
+class Asaxs1d(Saxs1d):
+    def __init__(self, i:dict[str, np.ndarray], q:np.ndarray):
+        """ASAXSプロファイルを扱うクラス
+
+        Parameters
+        ----------
+        i : dict[str, np.ndarray]
+            エネルギ[str]をキーとする強度配列のdict
+        q : np.ndarray
+            散乱ベクトルの配列
+        """
+        self.__intensity = i
+        self.__q = q
+        return
+
+    @property
+    def intensity(self) -> dict[str, np.ndarray]:
+        return self.__intensity
+
+    @property
+    def q(self) -> np.ndarray:
+        return self.__q
+
+    @property
+    def energies(self) -> list[str]:
+        return list(self.__intensity.keys())
+
+    def __getitem__(self, energy:str):
+        ret = Saxs1d(self.__intensity[energy], self.__q)
+        return ret
+
+    def __sub__(self, other):
+        if not isinstance(other, Asaxs1d):
+            raise TypeError(f"unsupported operand type(s) for -: 'Asaxs1d' and '{type(other)}'")
+        if self.q.shape != other.q.shape:
+            raise ValueError("q values do not match")
+        if self.intensity.keys() != other.intensity.keys():
+            raise ValueError("energy values do not match")
+        intensity = {key: self.intensity[key] - other.intensity[key] for key in self.intensity.keys()}
+        return Asaxs1d(intensity, self.q)
+
+    @classmethod
+    def combine(cls, profiles: dict[str, Saxs1d]) -> "Asaxs1d":
+        """複数のSaxs1dの散乱ベクトルを統合するしてAsaxs1dを返す
+        全てのエネルギについてqの値の中央値に対する強度を線形補間で求めて統合する
+
+        Parameters
+        ----------
+        profiles : dict[str, Saxs1d]
+            エネルギをキーとするSaxs1dのdict
+
+        Returns
+        -------
+        Asaxs1d
+            profilesの中央値のqに揃えたプロファイルをまとめたAsaxs1d
+        """
+        keys = np.array(list(profiles.keys()))
+        arr_q0 = np.array([profile.q[0] for profile in profiles.values()])
+        sorted_q0 = sorted(list(enumerate(arr_q0)), key=lambda x:(x[1], x[0]))
+        use_q_idx = sorted_q0[len(sorted_q0)//2][0]
+        q = profiles[keys[use_q_idx]].q
+
+        intensities = {}
+        for keys, profile in profiles.items():
+            intensities[keys] = np.interp(q, profile.q, profile.i, left=np.nan, right=np.nan)
+
+        return cls(intensities, q)
+
+    def normalize(self, coefs: dict[str, float]):
+        """各エネルギの散乱強度を規格化する
+        エネルギごとに異なる規格化係数coefを用いて散乱強度を規格化する
+        """
+        for key, coef in coefs.items():
+            self.__intensity[key] /= coef
+        return
+
+    def save(self, dst:str, overwrite=False):
+        """Asaxs1dを保存する"""
+        if not overwrite and os.path.exists(dst):
+            raise FileExistsError(f"{dst} already exists")
+        table = np.vstack([self.q, *self.intensity.values()]).T
+        header = 'q[nm^-1],' + ','.join(self.intensity.keys())
+        np.savetxt(dst, table, delimiter=',', header=header, comments='')
+        return
+
+    @classmethod
+    def load(cls, src:str) -> "Asaxs1d":
+        headers = loadtxt(src, max_rows=1, dtype=str, delimiter=',')
+        data = loadtxt(src, skiprows=1)
+        q = data[:, 0]
+        intensity = {header: data[:, i+1] for i, header in enumerate(headers[1:])}
+        return cls(intensity, q)
+
+    def solve_psf(self, f_prime:dict[str, float]):
+        """PSFを求める"""
+        if len(f_prime) != 3:
+            raise ValueError("f_prime must have 3 elements")
+        i1, i2, i3 = [self.intensity[key] for key in f_prime.keys()]
+        print('i:', i1.shape, i2.shape, i3.shape)
+        f1, f2, f3 = f_prime.values()
+        print('f\':', f1, f2, f3)
+        s = ((i1-i2)/(f1-f2) - (i1-i3)/(f1-f3)) / (f2-f3)
+        return s

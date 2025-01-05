@@ -1,5 +1,5 @@
 from SpectraSpark.saxs.qi2d import Saxs2d, Mask, file_integrate, series_integrate, find_center
-from SpectraSpark.saxs.qi1d import Saxs1d, Saxs1dSeries
+from SpectraSpark.saxs.qi1d import Saxs1d, Saxs1dSeries, Asaxs1d
 from SpectraSpark.saxs.fit import decouple_fit
 
 __version__ = "0.0.1"
