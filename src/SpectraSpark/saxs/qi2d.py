@@ -13,7 +13,7 @@ from ..util.basic_calculation import r2q
 from ..constants import DETECTER_PX_SIZES
 
 class Saxs2dParams:
-    CALIBRATION_TYPES = ('geometry', 'linear_regression', 'none')
+    CALIBRATION_TYPES = ('geometry', 'linear_regression', '2theta', 'none')
 
     def __init__(self, *,
                  center_x: float=np.nan,
@@ -33,9 +33,9 @@ class Saxs2dParams:
         self.detecter = detecter # 'PILATUS' or 'EIGER' or 'unknown'
         self.px_size = float(px_size)   # [mm]
         self.camera_length = float(camera_length) # [mm]
-        self.wave_length = float(wave_length)     # [AA]
-        self.slope = float(slope)  # [nm^-1/px]
-        self.intercept = float(intercept) # [nm^-1]
+        self.wave_length = float(wave_length)     # [nm]
+        self.slope = float(slope)  # [nm^-1/px] / [deg/px]
+        self.intercept = float(intercept) # [nm^-1] / [deg]
         self.flip = flip
         self.mask_src = mask_src
 
@@ -255,6 +255,7 @@ def file_integrate(file:str, **kwargs):
 def series_integrate(src: list[str]|str, *,
                      param_src = '', mask_src: str='', mask: np.ndarray=np.array([]),
                      center_x=np.nan, center_y=np.nan,
+                     calibration='none',
                      camera_length=np.nan, wave_length=np.nan,
                      px_size=np.nan, detecter="",
                      slope=np.nan, intercept=np.nan,
@@ -305,11 +306,11 @@ def series_integrate(src: list[str]|str, *,
                 raise FileNotFoundError(f"{src} is not found.")
             dst = dst if dst else re.sub(r"\.tif$", ".csv", src)
             files = [src]
-        else:
-            if not os.path.isdir(src):
-                raise FileNotFoundError(f"{src} is not found.")
+        elif os.path.isdir(src):
             files = [os.path.join(src, f) for f in listFiles(src, ext=".tif")]
             dst = dst if dst else src + ".csv"
+        else:
+            raise ValueError("Unsupported file format: only .tif or directory (with tif files init) is supported")
     else:
         for file in src:
             if not file.endswith(".tif"):
@@ -318,7 +319,7 @@ def series_integrate(src: list[str]|str, *,
             raise ValueError("dst to save results must be set")
         elif not dst.endswith(".csv"):
             dst = dst + ".csv"
-            warnings.warn(f"dst is set to {dst}")
+            warnings.warn(f"dst is set as {dst}")
         files=src
 
     if param_src:
@@ -327,6 +328,7 @@ def series_integrate(src: list[str]|str, *,
         params = Saxs2dParams.load(param_src)
         center_x = params.center_x
         center_y = params.center_y
+        calibration = params.calibration_type
         camera_length = params.camera_length
         wave_length = params.wave_length
         px_size = params.px_size
@@ -334,6 +336,7 @@ def series_integrate(src: list[str]|str, *,
         slope = params.slope
         intercept = params.intercept
         flip = params.flip
+        mask_src = params.mask_src
 
     n_files = len(files)
     if n_files == 0:
@@ -350,23 +353,41 @@ def series_integrate(src: list[str]|str, *,
     i_all = []
     headers = ["q[nm^-1]"]
 
-    calibration = 'none'
-    if is_numeric(camera_length) and is_numeric(wave_length):
+    if detecter:
+        detecter = detecter.upper()
+        if not detecter in DETECTER_PX_SIZES:
+            raise ValueError(f"unrecognized detecter `{detecter}`")
+        px_size = DETECTER_PX_SIZES[detecter]
+
+    if calibration == 'geometry':
+        # px -> r[mm] -> q[nm^-1]
+        if not is_numeric(camera_length):
+            raise ValueError("camera_length must be set for geometry calibration")
+        if not is_numeric(wave_length):
+            raise ValueError("wave_length must be set for geometry calibration")
+        if not is_numeric(px_size):
+            raise ValueError("px_size must be set for geometry calibration")
+    elif calibration == 'linear_regression':
+        # px -> q[nm^-1]
+        if not is_numeric(slope):
+            raise ValueError("slope must be set for linear_regression calibration")
+        if not is_numeric(intercept):
+            raise ValueError("intercept must be set for linear_regression calibration")
+        px_size = np.nan
+    elif calibration == '2theta':
+        # px -> 2theta[deg] (-> q[nm^-1])
+        if not is_numeric(slope):
+            raise ValueError("slope must be set for 2theta calibration")
+        if not is_numeric(intercept):
+            raise ValueError("intercept must be set for 2theta calibration")
+        px_size = np.nan
+    elif is_numeric(camera_length) and is_numeric(wave_length):
         calibration = 'geometry'
-
-        if detecter.upper() in DETECTER_PX_SIZES:
-            px_size = DETECTER_PX_SIZES[detecter.upper()]
-        elif detecter == '':
-            if np.isnan(px_size):
-                raise ValueError("either `px_size` or `detecter` must be set for geometry calibration")
-        else:
-            raise ValueError(f'unrecognized detecter `{detecter}`')
-
     elif is_numeric(slope) and is_numeric(intercept):
         calibration = 'linear_regression'
         px_size = np.nan
     else:
-        warnings.warn("no valid calibration parameter given")
+        warnings.warn("no valid calibration parameter given: raw r[px] will be used")
 
     height, width = cv2.imread(files[0], cv2.IMREAD_UNCHANGED).shape
     mask_flg = False
@@ -387,11 +408,24 @@ def series_integrate(src: list[str]|str, *,
     elif calibration == 'linear_regression':
         def _r2q(r) -> np.ndarray:
             return intercept + slope * r
+    elif calibration == '2theta':
+        if is_numeric(wave_length):
+            def _r2q(r) -> np.ndarray:
+                return 4 * np.pi * np.sin(0.5*np.radians(intercept + slope * r)) / wave_length
+        else:
+            def _r2ttheta(r) -> np.ndarray:
+                return intercept + slope * r
+            _r2q = _r2ttheta
+            headers[0] = "2theta[deg]"
     else:
-        px_size = 1 if np.isnan(px_size) else px_size
-        def _r2r(r:np.ndarray) -> np.ndarray:
-            return r * px_size
-        _r2q = _r2r
+        if np.isnan(px_size):
+            def _r2q(r) -> np.ndarray:
+                return r
+            headers[0] = "r[px]"
+        else:
+            def _r2q(r) -> np.ndarray:
+                return r * px_size
+            headers[0] = "r[mm]"
 
     r, i = np.array([]), np.array([])
     for file in files:
@@ -418,9 +452,6 @@ def series_integrate(src: list[str]|str, *,
             bar.update(1)
 
     q = _r2q(r)
-    if calibration == 'none':
-        headers[0] = "r[mm]" if abs(px_size-1) > 1e-10 else "r[px]"
-
     arr_out = np.hstack([q.reshape(-1, 1), np.array(i_all).T])
     savetxt(dst, arr_out, header=headers, overwrite=overwrite)
 
