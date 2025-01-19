@@ -3,10 +3,11 @@
 import re
 import os
 import numpy as np
+import warnings
 from larch import Group
 from larch import io
 from larch.xrd.struct2xas import Struct2XAS
-from larch.xafs import feffrunner, feffpath, FeffPathGroup
+from larch.xafs import feffrunner, feffpath, FeffPathGroup, feffit_report
 from xraydb import atomic_number
 
 from SpectraSpark.util.basic_calculation import nm2ev
@@ -134,7 +135,12 @@ def read_ascii(src, *, labels=[], skiprows=-1)->Group:
         header = header[1:]   # remove '#'
         labels = header.strip().split()
 
-    return io.read_ascii(src, labels=labels)
+    data = io.read_ascii(src, labels=labels)
+    if hasattr(data, 'e') and not hasattr(data, 'energy'):
+        data.energy = data.e
+    if hasattr(data, 'xmu') and not hasattr(data, 'mu'):
+        data.mu = data.xmu
+    return data
 
 def merge(groups):
     """muを持つGroupのリストを結合する"""
@@ -244,3 +250,121 @@ def label_path(path, inplace=True):
     if inplace:
         path.label = geom
     return geom
+
+def save_rbkg(group:Group, dst:str='', fmt='%.8f')->str:
+    """groupからrbkgのパラメタと結果を抽出して保存する"""
+    if not hasattr(group, 'autobk_details'):
+        raise ValueError("group does not seem autobk-processed")
+
+    if dst == '':
+        dst = group.filename.split('.')[0] + '_bkg.dat'
+    elif dst.endswith('/'):
+        dst += group.filename.split('.')[0] + '_bkg.dat'
+
+    autobk_details = group.autobk_details
+    keys = ('ek0', 'iek0', 'iemax', 'irbkg', 'kmax', 'kmin')
+    details = {key: getattr(autobk_details, key) for key in keys if not key.startswith('_')}
+    details['rbkg'] = group.rbkg
+    details['e0'] = group.e0
+    details['src'] = group.filename
+    column_labels = ['energy', 'mu', 'pre_edge', 'post_edge', 'bkg', 'chie']
+    table = np.array([getattr(group, label) for label in column_labels]).T
+    header = '\n'.join([f"{key}: {details[key]}" for key in details])
+    header += '\n' + '\t'.join(column_labels)
+    np.savetxt(dst, table, header=header, fmt=fmt, delimiter='\t')
+    return dst
+
+def save_chik(group:Group, dst:str='', fmt='%.8f')->str:
+    """groupからchikを抽出して保存する"""
+    if not hasattr(group, 'k'):
+        raise ValueError("group does not seem k-space processed")
+
+    if dst == '':
+        dst = group.filename.split('.')[0] + '_chik.dat'
+    elif dst.endswith('/'):
+        dst += group.filename.split('.')[0] + '_chik.dat'
+
+    headers = f'src: {group.filename}\n' \
+              + f'e0: {group.e0}\n' \
+              + f'k\tchik'
+    table = np.array([group.k, group.chi]).T
+    np.savetxt(dst, table, header=headers, fmt=fmt)
+    return dst
+
+def save_chir(group:Group, dst:str='', fmt='%.8f')->str:
+    """groupからchirを抽出して保存する"""
+    if not hasattr(group, 'r'):
+        raise ValueError("group does not seem r-space processed")
+
+    if dst == '':
+        dst = group.filename.split('.')[0] + '_chir.dat'
+    elif dst.endswith('/'):
+        dst += group.filename.split('.')[0] + '_chir.dat'
+
+    headers = f'src: {group.filename}\n' \
+              + f'e0: {group.e0}\n' \
+              + f'r\tchir_mag\tchir_pha\tchir_re\tchir_im'
+    table = np.array([group.r, group.chir_mag, group.chir_re, group.chir_im]).T
+    np.savetxt(dst, table, header=headers, fmt=fmt)
+    return dst
+
+def save_feffit(out:Group, dst:str='', fmt='%.8f')->list[str]|str:
+    """feffitの結果を保存する"""
+    if not out.success:
+        warnings.warn("feffit failed")
+
+    simultaneous = len(out.datasets) > 1
+    if not simultaneous:
+        if dst == '':
+            dst = out.datasets[0].data.filename.split('.')[0] + '_feffit.dat'
+        elif dst.endswith('/'):
+            dst += out.datasets[0].data.filename.split('.')[0] + '_feffit.dat'
+    elif dst == '' or dst.endswith('/'):
+        raise ValueError("dst must be specified for simultaneous fitting")
+    saved = []
+
+    report = feffit_report(out)
+
+    with open(dst.replace('.dat', '.log'), 'w') as f:
+        f.write(report)
+
+
+    for dataset in out.datasets:
+        filename = dataset.data.filename
+        label = filename.split('.')[0]
+        _dst = dst
+        if simultaneous:
+            _dst = dst.replace('.dat', f'_{label}.dat')
+        model, data = dataset.model, dataset.data
+        header = 'r/A chi_exp/A^-4 chi_fit/A^-4'
+        r, chi_exp, chi_fit = model.r, data.chir_mag, model.chir_mag
+        np.savetxt(_dst, np.array([r, chi_exp, chi_fit]).T, header=header, fmt=fmt)
+        saved.append(_dst)
+
+    if simultaneous:
+        return saved
+    else:
+        return saved[0]
+
+def save(group:Group, dst:str='./', feffit_out:Group=None):
+    if not hasattr(group, 'autobk_details'):
+        warnings.warn("group does not seem autobk-processed")
+        return
+    _dst = save_rbkg(group, dst=dst)
+    print(f'{_dst} saved')
+
+    if not hasattr(group, 'k'):
+        return
+    _dst = save_chik(group, dst=dst)
+    print(f'{_dst} saved')
+
+    if not hasattr(group, 'r'):
+        return
+    else:
+        _dst = save_chir(group, dst=dst)
+        print(f'{_dst} saved')
+
+    if feffit_out is None:
+        return
+    _dst = save_feffit(feffit_out, dst=dst)
+    print(f'{_dst} saved')
