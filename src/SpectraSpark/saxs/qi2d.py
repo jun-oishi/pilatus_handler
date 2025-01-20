@@ -148,11 +148,12 @@ def _readmask(src:str)->np.ndarray:
     if len(mask.shape) != 2:
         raise ValueError("mask file must be 2D single-channel image")
     mask[mask > 0] = 1
+    print(f"mask {os.path.abspath(src)} loaded")
     return mask.astype(np.uint8)
 
 def _get_stats(img:np.ndarray, mask:np.ndarray, center_x:float, center_y:float, prefix:str, r2q:Callable, threshold:int=2)->Tuple[np.ndarray, np.ndarray]:
-    """動径平均と分散を求めてcsv, 散布図, エラーバー付きq-iプロットを保存する
-    imgをマスクして動径平均と分散を計算して{prefix}_radial.csv, {prefix}_scatter.png, {prefix}_radial.pngを保存する
+    """動径平均と分散を求めてtsv, 散布図, エラーバー付きq-iプロットを保存する
+    imgをマスクして動径平均と分散を計算して{prefix}_radial.tsv, {prefix}_scatter.png, {prefix}_radial.pngを保存する
 
     Parameters
     ----------
@@ -214,7 +215,7 @@ def _get_stats(img:np.ndarray, mask:np.ndarray, center_x:float, center_y:float, 
     min_i, max_i = np.nanmin(i), np.max(img)
 
     # 散布図
-    savetxt(f"{prefix}_scatter.csv", np.array([q_mesh.flatten(), img.flatten()]).T,
+    savetxt(f"{prefix}_scatter.tsv", np.array([q_mesh.flatten(), img.flatten()]).T,
             header=["q[nm^-1]", "i"], overwrite=True)
     fig, ax = plt.subplots(figsize=figsize)
     ax.scatter(q_mesh, img, s=1)
@@ -229,7 +230,7 @@ def _get_stats(img:np.ndarray, mask:np.ndarray, center_x:float, center_y:float, 
 
     # 動径平均とエラーバー
     q = r2q(r+0.5)
-    savetxt(f"{prefix}_radial.csv", np.array([q, i, i_std, cnt]).T,
+    savetxt(f"{prefix}_radial.tsv", np.array([q, i, i_std, cnt]).T,
             header=["q[nm^-1]", "i", "i_std", "n"], overwrite=True)
     fig, ax = plt.subplots(figsize=figsize)
     ax.errorbar(q, i, yerr=i_std, fmt='o', markersize=2)
@@ -293,7 +294,7 @@ def series_integrate(src: list[str]|str, *,
     statistics : bool
         Trueなら統計情報を出力する
     dst : str
-        結果(csv)を保存するファイル名、指定がなければdir.csv
+        結果(tsv)を保存するファイル名、指定がなければdir.tsv
     overwrite : bool
         Trueなら上書きする
     verbose : bool
@@ -304,11 +305,11 @@ def series_integrate(src: list[str]|str, *,
         if src.endswith(".tif"):
             if not os.path.exists(src):
                 raise FileNotFoundError(f"{src} is not found.")
-            dst = dst if dst else re.sub(r"\.tif$", ".csv", src)
+            dst = dst if dst else re.sub(r"\.tif$", ".tsv", src)
             files = [src]
         elif os.path.isdir(src):
             files = [os.path.join(src, f) for f in listFiles(src, ext=".tif")]
-            dst = dst if dst else src + ".csv"
+            dst = dst if dst else src + ".tsv"
         else:
             raise ValueError("Unsupported file format: only .tif or directory (with tif files init) is supported")
     else:
@@ -317,8 +318,8 @@ def series_integrate(src: list[str]|str, *,
                 raise ValueError("Unsupported file format: only .tif is supported")
         if len(dst) == 0:
             raise ValueError("dst to save results must be set")
-        elif not dst.endswith(".csv"):
-            dst = dst + ".csv"
+        elif not dst.endswith(".tsv"):
+            dst = dst + ".tsv"
             warnings.warn(f"dst is set as {dst}")
         files=src
 
@@ -326,6 +327,7 @@ def series_integrate(src: list[str]|str, *,
         if not os.path.exists(param_src):
             raise FileNotFoundError(f"{param_src} is not found.")
         params = Saxs2dParams.load(param_src)
+        param_src_dir = os.path.abspath(os.path.dirname(param_src))
         center_x = params.center_x
         center_y = params.center_y
         calibration = params.calibration_type
@@ -336,7 +338,7 @@ def series_integrate(src: list[str]|str, *,
         slope = params.slope
         intercept = params.intercept
         flip = params.flip
-        mask_src = params.mask_src
+        mask_src = os.path.join(param_src_dir, params.mask_src) if params.mask_src else ''
 
     n_files = len(files)
     if n_files == 0:
@@ -451,16 +453,22 @@ def series_integrate(src: list[str]|str, *,
         if verbose:
             bar.update(1)
 
+    if calibration == 'geometry':
+        _cos = np.cos(np.arctan(r*px_size/camera_length))
+        i_all = np.array(i_all) / _cos
     q = _r2q(r)
     arr_out = np.hstack([q.reshape(-1, 1), np.array(i_all).T])
+    arr_out = arr_out[~np.all(np.isnan(arr_out[:,1:]), axis=1)] # remove all nan rows
     savetxt(dst, arr_out, header=headers, overwrite=overwrite)
 
     if mask_flg:
         if mask_src == '':
-            mask_src = dst.replace(".csv", "_mask.tif")
+            mask_src = dst.replace(".tsv", "_mask.tif")
             cv2.imwrite(mask_src, mask)
+        else:
+            mask_src = os.path.relpath(mask_src, os.path.dirname(dst))
 
-    paramfile = dst.replace(".csv", "_params.json")
+    paramfile = dst.replace(".tsv", "_params.json")
 
     if 'v' in flip and 'h' in flip:
         flip = 'vertical and horizontal'
@@ -557,8 +565,8 @@ def find_center(src, detecter='', px_size=np.nan, overwrite=True):
         except FileExistsError:
             dst = file_integrate(src, center_x=center[0], center_y=center[1],
                                     px_size=px_size, detecter=detecter,
-                                    flip='', dst='tmp.csv', overwrite=True)
-            warnings.warn("File already exists, saved as tmp.csv")
+                                    flip='', dst='tmp.tsv', overwrite=True)
+            warnings.warn("File already exists, saved as tmp.tsv")
         return
 
     def exit(event):

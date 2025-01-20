@@ -38,7 +38,7 @@ def loadtxt(src, *, delimiter=(None, ','), skiprows=-1, comments='#', **kwargs):
             pass
     raise ValueError("delimiter is not correct")
 
-def savetxt(fname, X, header:str|tuple|list='', *, delimiter=",", fmt="%.6e", overwrite=False, **kwargs):
+def savetxt(fname, X, header:str|tuple|list='', *, delimiter="\t", fmt="%.6e", overwrite=False, **kwargs):
     """numpy.savetxtのラッパー
 
     Parameters

@@ -286,14 +286,16 @@ class Asaxs1d(Saxs1d):
         if not overwrite and os.path.exists(dst):
             raise FileExistsError(f"{dst} already exists")
         table = np.vstack([self.q, *self.intensity.values()]).T
-        header = 'q[nm^-1],' + ','.join(self.intensity.keys())
-        np.savetxt(dst, table, delimiter=',', header=header, comments='')
+        header = '# q[nm^-1]\t' + '\t'.join(self.intensity.keys())
+        np.savetxt(dst, table, delimiter='\t', header=header, comments='')
         return
 
     @classmethod
     def load(cls, src:str) -> "Asaxs1d":
-        headers = loadtxt(src, max_rows=1, dtype=str, delimiter=',')
+        headers = open(src).readline().strip().split('\t')
+        print(headers)
         data = loadtxt(src, skiprows=1)
+        print(data.shape)
         q = data[:, 0]
         intensity = {header: data[:, i+1] for i, header in enumerate(headers[1:])}
         return cls(intensity, q)
@@ -303,8 +305,6 @@ class Asaxs1d(Saxs1d):
         if len(f_prime) != 3:
             raise ValueError("f_prime must have 3 elements")
         i1, i2, i3 = [self.intensity[key] for key in f_prime.keys()]
-        print('i:', i1.shape, i2.shape, i3.shape)
         f1, f2, f3 = f_prime.values()
-        print('f\':', f1, f2, f3)
         s = ((i1-i2)/(f1-f2) - (i1-i3)/(f1-f3)) / (f2-f3)
         return s
