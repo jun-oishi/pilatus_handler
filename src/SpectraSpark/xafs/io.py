@@ -251,15 +251,24 @@ def label_path(path, inplace=True):
         path.label = geom
     return geom
 
-def save_rbkg(group:Group, dst:str='', fmt='%.8f')->str:
+def save_rbkg(group:Group, dst:str='', *, fmt='%.8f', only_mu=False)->str:
     """groupからrbkgのパラメタと結果を抽出して保存する"""
     if not hasattr(group, 'autobk_details'):
-        raise ValueError("group does not seem autobk-processed")
+        if only_mu:
+            warnings.warn("group does not seem autobk-processed")
+        else:
+            raise ValueError("group does not seem autobk-processed")
 
     if dst == '':
         dst = group.filename.split('.')[0] + '_bkg.dat'
     elif dst.endswith('/'):
         dst += group.filename.split('.')[0] + '_bkg.dat'
+
+    if only_mu:
+        table = np.array([group.energy, group.mu]).T
+        header = 'energy\tmu'
+        np.savetxt(dst, table, header=header, fmt=fmt, delimiter='\t')
+        return dst
 
     autobk_details = group.autobk_details
     keys = ('ek0', 'iek0', 'iemax', 'irbkg', 'kmax', 'kmin')
@@ -274,7 +283,7 @@ def save_rbkg(group:Group, dst:str='', fmt='%.8f')->str:
     np.savetxt(dst, table, header=header, fmt=fmt, delimiter='\t')
     return dst
 
-def save_chik(group:Group, dst:str='', fmt='%.8f')->str:
+def save_chik(group:Group, dst:str='', *, fmt='%.8f')->str:
     """groupからchikを抽出して保存する"""
     if not hasattr(group, 'k'):
         raise ValueError("group does not seem k-space processed")
@@ -291,7 +300,7 @@ def save_chik(group:Group, dst:str='', fmt='%.8f')->str:
     np.savetxt(dst, table, header=headers, fmt=fmt)
     return dst
 
-def save_chir(group:Group, dst:str='', fmt='%.8f')->str:
+def save_chir(group:Group, dst:str='', *, fmt='%.8f')->str:
     """groupからchirを抽出して保存する"""
     if not hasattr(group, 'r'):
         raise ValueError("group does not seem r-space processed")
@@ -308,7 +317,8 @@ def save_chir(group:Group, dst:str='', fmt='%.8f')->str:
     np.savetxt(dst, table, header=headers, fmt=fmt)
     return dst
 
-def save_feffit(out:Group, dst:str='', fmt='%.8f')->list[str]|str:
+def save_feffit(out:Group, dst:str='', *, fmt='%.8f',
+                with_rbkg=True, with_chik=True)->list[str]|str:
     """feffitの結果を保存する"""
     if not out.success:
         warnings.warn("feffit failed")
@@ -321,6 +331,10 @@ def save_feffit(out:Group, dst:str='', fmt='%.8f')->list[str]|str:
             dst += out.datasets[0].data.filename.split('.')[0] + '_feffit.dat'
     elif dst == '' or dst.endswith('/'):
         raise ValueError("dst must be specified for simultaneous fitting")
+
+    if not dst.endswith('.dat'):
+        dst = dst + '.dat'
+
     saved = []
 
     report = feffit_report(out)
@@ -336,6 +350,10 @@ def save_feffit(out:Group, dst:str='', fmt='%.8f')->list[str]|str:
         if simultaneous:
             _dst = dst.replace('.dat', f'_{label}.dat')
         model, data = dataset.model, dataset.data
+        if with_rbkg:
+            save_rbkg(data, dst=_dst.replace('.dat', '_rbkg.dat'), fmt=fmt, only_mu=False)
+        if with_chik:
+            save_chik(data, dst=_dst.replace('.dat', '_chik.dat'), fmt=fmt)
         header = 'r/A chi_exp/A^-4 chi_fit/A^-4'
         r, chi_exp, chi_fit = model.r, data.chir_mag, model.chir_mag
         np.savetxt(_dst, np.array([r, chi_exp, chi_fit]).T, header=header, fmt=fmt)
